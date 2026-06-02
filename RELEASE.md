@@ -4,6 +4,27 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.2 — 2026-06-02
+
+### Added
+- `push_sport_targets`: set per-sport weekly targets. Investigation established
+  that the API has no nested per-sport field on a TARGET event — per-sport
+  targets are **separate TARGET events per sport per week** (each with `type`,
+  `load_target`, `time_target`, `distance_target`, and `description` as the
+  coaching note). The tool replaces all TARGET events in a week (delete-then-
+  recreate) with one per supplied sport. `distance_m` is supported but optional.
+
+### Changed
+- `get_weekly_targets` now groups TARGET events by week and returns a
+  `sport_targets[]` array per week (type, load_target, duration_minutes,
+  distance_m, notes), with the week `load_target` as the sum across sports.
+  Week-level `current_week`/`completed_load`/`compliance` are unchanged;
+  `phase_name` is preserved when a target's name is not itself a sport type.
+
+### Notes
+- Rollout is staged: a single pilot week is restructured first for UI
+  verification before the remaining weeks (per operator decision).
+
 ## 0.1.1 — 2026-06-02
 
 ### Fixed

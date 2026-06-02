@@ -125,6 +125,24 @@ export const PushWeeklyTargetInput = {
 		),
 };
 
+export const PushSportTargetsInput = {
+	week_start: isoDate().describe("Monday of the target week (ISO)."),
+	sport_targets: z
+		.array(
+			z.object({
+				type: z.string().describe("Sport type, e.g. Ride, WeightTraining, Yoga."),
+				load_target: z.number().int().optional().describe("Target training load (TSS) for this sport."),
+				duration_minutes: z.number().optional().describe("Target duration in minutes for this sport."),
+				distance_m: z.number().optional().describe("Target distance in metres (omit for indoor sports)."),
+				notes: z.string().optional().describe("Free-text coaching note for this sport (stored as the event description)."),
+			}),
+		)
+		.min(1)
+		.describe(
+			"One entry per sport. Each becomes a separate TARGET event in the week. All existing TARGET events in the week are replaced.",
+		),
+};
+
 export const ApplyPlanInput = {
 	folder_id: z.number().int().describe("Plan-library folder id (see list_plan_folders)."),
 	start_date_local: z.string().describe("Start date (ISO). Must be a Monday."),

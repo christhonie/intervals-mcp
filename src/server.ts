@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -467,7 +467,7 @@ export class IntervalsMcpServer {
 			"get_weekly_targets",
 			{
 				description:
-					"Read Plan Builder weekly load targets (category TARGET). Returns one object per week with load/hours/distance targets, a current_week flag, and compliance (on_track/under/over/unknown) computed against completed load for past/current weeks.",
+					"Read Plan Builder weekly load targets (category TARGET), grouped by week. Each week returns the aggregate load_target (sum across sports), a current_week flag, compliance (on_track/under/over/unknown) vs completed load, and a sport_targets array — one entry per sport TARGET event in the week with its load_target, duration_minutes, distance_m, and notes.",
 				inputSchema: schemas.GetWeeklyTargetsInput,
 				annotations: RO,
 			},
@@ -478,12 +478,18 @@ export class IntervalsMcpServer {
 				const todayStr = today();
 				const currentWeekStart = weekStartMonday(todayStr);
 
-				// Compliance needs completed load for past/current weeks. Fetch activities
-				// once across the span of target weeks that have started.
-				const startedWeeks = events
-					.map((e: any) => String(e.start_date_local).slice(0, 10))
-					.filter((d) => d <= todayStr);
-				let loadByWeek = new Map<string, number>();
+				// Group TARGET events by ISO week (Monday). Per-sport targets are
+				// separate TARGET events sharing a week (see decision log).
+				const byWeek = new Map<string, any[]>();
+				for (const e of events) {
+					const ws = weekStartMonday(String(e.start_date_local).slice(0, 10));
+					if (!byWeek.has(ws)) byWeek.set(ws, []);
+					byWeek.get(ws)!.push(e);
+				}
+
+				// Completed load per week for started weeks (compliance).
+				const startedWeeks = [...byWeek.keys()].filter((w) => w <= todayStr);
+				const loadByWeek = new Map<string, number>();
 				if (startedWeeks.length) {
 					const minStart = startedWeeks.sort()[0];
 					const acts = (await this.client.listActivities({ oldest: minStart, newest: todayStr })) ?? [];
@@ -501,13 +507,28 @@ export class IntervalsMcpServer {
 					if (ratio > 1.1) return "over";
 					return "on_track";
 				};
+				// Names that are sport types are not phase labels.
+				const SPORT_TYPES = new Set([
+					"Ride", "VirtualRide", "Run", "Swim", "WeightTraining", "Yoga",
+				]);
 
-				const result = events
-					.map((e: any) => {
-						const week_start = String(e.start_date_local).slice(0, 10);
-						const load_target = toNum(e.load_target);
-						const hours_target = toNum(e.time_target) !== null ? Math.round((toNum(e.time_target) as number) / 36) / 100 : null;
-						const distance_target = toNum(e.distance_target);
+				const result = [...byWeek.entries()]
+					.map(([week_start, evs]) => {
+						const sport_targets = evs
+							.map((e: any) => ({
+								type: e.type ?? null,
+								load_target: toNum(e.load_target),
+								duration_minutes:
+									toNum(e.time_target) !== null ? Math.round((toNum(e.time_target) as number) / 60) : null,
+								distance_m: toNum(e.distance_target),
+								notes: e.description ?? null,
+							}))
+							.sort((a, b) => String(a.type).localeCompare(String(b.type)));
+						const loadSum = sport_targets.reduce((s, t) => s + (t.load_target ?? 0), 0);
+						const load_target = loadSum > 0 ? loadSum : null;
+						// Preserve a phase label if an event name is not itself a sport type.
+						const phaseEvent = evs.find((e: any) => e.name && !SPORT_TYPES.has(e.name));
+						const phase_name = phaseEvent?.name ?? null;
 						const started = week_start <= todayStr;
 						const completed_load = started ? Math.round(loadByWeek.get(week_start) ?? 0) : null;
 						const compliance =
@@ -515,12 +536,11 @@ export class IntervalsMcpServer {
 						return {
 							week_start,
 							load_target,
-							hours_target,
-							distance_target,
-							phase_name: e.name ?? null,
+							phase_name,
 							current_week: week_start === currentWeekStart,
 							completed_load,
 							compliance,
+							sport_targets,
 						};
 					})
 					.sort((a, b) => a.week_start.localeCompare(b.week_start));
@@ -564,6 +584,52 @@ export class IntervalsMcpServer {
 				}
 				const created = await this.client.createEvent(body);
 				return text({ replaced: true, deleted_event_id: args.event_id, created });
+			},
+		);
+
+		this.server.registerTool(
+			"push_sport_targets",
+			{
+				description:
+					"Set per-sport weekly targets for a week. Per-sport breakdown is modelled as separate TARGET events (one per sport), since the API has no nested sport-target field and rejects PUT on TARGET events. This REPLACES all existing TARGET events in the week (delete-then-recreate) with one TARGET per supplied sport, each carrying load_target, duration (time_target), optional distance, and notes (description). Per-sport loads should sum to the intended weekly total.",
+				inputSchema: schemas.PushSportTargetsInput,
+				annotations: WRITE,
+			},
+			async (args) => {
+				const ws = args.week_start;
+				const weekKey = weekStartMonday(ws);
+				// Remove existing TARGET events in this week.
+				const existing = (await this.client.listEvents({ oldest: ws, newest: addDays(ws, 6), category: "TARGET" })) ?? [];
+				const inWeek = existing.filter(
+					(e: any) => weekStartMonday(String(e.start_date_local).slice(0, 10)) === weekKey,
+				);
+				const deleted: number[] = [];
+				for (const e of inWeek) {
+					try {
+						await this.client.deleteEvent(e.id);
+						deleted.push(e.id);
+					} catch (err) {
+						if (!(err instanceof IntervalsApiError && err.status === 404)) throw err;
+					}
+				}
+				// Create one TARGET event per sport.
+				const created: any[] = [];
+				for (const st of args.sport_targets) {
+					const body: Record<string, unknown> = {
+						category: "TARGET",
+						type: st.type,
+						name: st.type,
+						start_date_local: toDateTime(ws),
+						end_date_local: toDateTime(addDays(ws, 7)),
+					};
+					if (st.load_target !== undefined) body.load_target = st.load_target;
+					if (st.duration_minutes !== undefined) body.time_target = Math.round(st.duration_minutes * 60);
+					if (st.distance_m !== undefined) body.distance_target = st.distance_m;
+					if (st.notes !== undefined) body.description = st.notes;
+					const c = await this.client.createEvent(body);
+					created.push({ id: c.id, type: c.type, load_target: c.load_target });
+				}
+				return text({ week_start: ws, deleted, created_count: created.length, created });
 			},
 		);
 
