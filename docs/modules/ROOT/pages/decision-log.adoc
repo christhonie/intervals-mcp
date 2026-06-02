@@ -119,6 +119,27 @@ Consequences::
 * Positive: weekly-target recalibration works against Plan Builder targets; single tool retained (no separate `replace_weekly_target`).
 * Negative: the recreated event gets a new id, and Plan Builder linkage / non-supplied fields (e.g. `time_target`, `distance_target`) are not carried over. Plan Builder places TARGETs with `end_date_local = start + 1 day`; recreated targets use the spec's `+ 7 days` (exclusive) convention.
 
+[#adr-006]
+=== ADR-006: Per-sport targets as separate TARGET events per week
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+Phase 4 wanted per-sport weekly targets (load / duration / notes per sport). Investigation found the API has no nested sport-target field on a TARGET event, and TARGET events reject `PUT`. A live probe confirmed multiple TARGET events can coexist in one week, one per `type`, each carrying `load_target`, `time_target`, `distance_target`, and `description` (the free-text note).
+
+Decision::
+Model per-sport targets as separate `category: TARGET` events per sport per week. `push_sport_targets(week_start, sport_targets[])` replaces all of a week's TARGET events (delete-then-recreate) with one per supplied sport. `get_weekly_targets` groups by week and nests `sport_targets[]`, summing `load_target`.
+
+Consequences::
++
+* Positive: per-sport compliance rings render correctly in the Plan Builder UI (verified on the 2026-06-01 pilot); notes carry phase context.
+* Negative: `phase_name` is `null` on restructured weeks (event name = sport type); phase lives in notes. The UI auto-derives a Ride distance from duration even when `distance_target` is unset.
+
+Rollout:: Pilot week 2026-06-01 applied and UI-verified. The remaining 27 weeks are delegated to a separate session, driven by the value table in the handover document.
+
 == Requirement change log
 
 [cols="1,3",options="header"]

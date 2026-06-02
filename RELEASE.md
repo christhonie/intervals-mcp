@@ -24,6 +24,9 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 ### Notes
 - Rollout is staged: a single pilot week is restructured first for UI
   verification before the remaining weeks (per operator decision).
+- Pilot week 2026-06-01 applied and UI-verified (Ride + WeightTraining render
+  separately with a combined header total). The remaining 27 weeks are delegated
+  to a separate session, driven by the value table in the handover document.
 
 ## 0.1.1 — 2026-06-02
 
