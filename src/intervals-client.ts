@@ -148,6 +148,10 @@ export class IntervalsClient {
 		return this.request("PUT", this.athletePath(`/events/${eventId}`), { body });
 	}
 
+	deleteEvent(eventId: number | string): Promise<any> {
+		return this.request("DELETE", this.athletePath(`/events/${eventId}`));
+	}
+
 	// ── Wellness ──
 
 	listWellness(query: { oldest?: string; newest?: string }): Promise<any[]> {

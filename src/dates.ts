@@ -34,6 +34,15 @@ export function addDays(dateStr: string, n: number): string {
 	return formatDate(d);
 }
 
+/**
+ * Intervals.icu event POSTs require a full ISO datetime for start/end dates
+ * (a bare YYYY-MM-DD is rejected with "Invalid start date"). Append midnight
+ * when only a date is supplied; pass through anything that already has a time.
+ */
+export function toDateTime(d: string): string {
+	return /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T00:00:00` : d;
+}
+
 /** 0 = Sunday … 1 = Monday … 6 = Saturday (UTC). */
 export function dayOfWeek(dateStr: string): number {
 	return new Date(dateStr + "T00:00:00Z").getUTCDay();

@@ -4,9 +4,35 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
-## [Unreleased] — 0.1.0
+## 0.1.1 — 2026-06-02
 
-Initial implementation. Not yet deployed.
+### Fixed
+- `push_weekly_target`: replacing an existing Plan Builder TARGET event now works.
+  Three API behaviours were discovered and handled:
+  1. The API rejects `PUT` on TARGET events with
+     `HTTP 422 "Cannot change TARGET date"` — even when the date is unchanged.
+     `DELETE /events/{eventId}` is permitted, so an update (when `event_id` is
+     supplied) is now done by **delete-then-recreate**: DELETE the existing event,
+     then POST a new TARGET (`end_date_local = week_start + 7`, exclusive). The
+     delete tolerates `404` (already removed) so the operation is idempotent. The
+     recreated event gets a new id (returned as `created`).
+  2. Creating a TARGET requires a `type` (`HTTP 422 "type is required for
+     category TARGET"`). Plan Builder weekly targets use `type: "Ride"`, now set.
+  3. Event POSTs require a full ISO datetime for `start_date_local` /
+     `end_date_local` (a bare `YYYY-MM-DD` is rejected with "Invalid start date").
+- Event date format: added a `toDateTime` helper that appends `T00:00:00` to
+  date-only values. Applied to `push_weekly_target`, **and also to `push_workout`
+  and `push_note`**, which had the same latent date-format bug on POST.
+
+### Operational
+- Applied the corrected 28-week load targets (Base 12w + Build 16w,
+  2026-05-04 → 2026-11-15) via the new replace path; validated all 28 with
+  `get_weekly_targets` (loads + phases match, no discrepancies).
+- Image bumped to `0.1.1`; `k8s/deployment.yaml` updated.
+
+## 0.1.0 — 2026-06-02
+
+Initial implementation. Deployed to `https://icu-mcp.christhonie.co.za/mcp`.
 
 ### Added
 - TypeScript MCP server scaffold (plain `tsc` ESM build), mirroring the

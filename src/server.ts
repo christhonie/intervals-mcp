@@ -8,13 +8,13 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { IntervalsClient } from "./intervals-client.js";
+import { IntervalsClient, IntervalsApiError } from "./intervals-client.js";
 import type { IntervalsConfig } from "./config.js";
 import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
-import { addDays, daysAgo, daysFromNow, isMonday, today, weekStartMonday } from "./dates.js";
+import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -252,7 +252,7 @@ export class IntervalsMcpServer {
 			async (args) => {
 				const body: Record<string, unknown> = {
 					category: "WORKOUT",
-					start_date_local: args.date,
+					start_date_local: toDateTime(args.date),
 					name: args.name,
 					type: args.type,
 				};
@@ -307,11 +307,11 @@ export class IntervalsMcpServer {
 			async (args) => {
 				const body: Record<string, unknown> = {
 					category: "NOTE",
-					start_date_local: args.start_date_local,
+					start_date_local: toDateTime(args.start_date_local),
 					name: args.name,
 				};
 				if (args.description !== undefined) body.description = args.description;
-				if (args.end_date_local !== undefined) body.end_date_local = args.end_date_local;
+				if (args.end_date_local !== undefined) body.end_date_local = toDateTime(args.end_date_local);
 				if (args.for_week !== undefined) body.for_week = args.for_week;
 				if (args.tags !== undefined) body.tags = args.tags;
 				return text(await this.client.createEvent(body));
@@ -532,23 +532,38 @@ export class IntervalsMcpServer {
 			"push_weekly_target",
 			{
 				description:
-					"Write or update a single weekly load target (category TARGET). start/end dates span the week (end exclusive). Never sets icu_training_load or moving_time. Provide event_id to update an existing target.",
+					"Write or update a single weekly load target (category TARGET). start/end dates span the week (end exclusive). Never sets icu_training_load or moving_time. " +
+					"Provide event_id to replace an existing Plan Builder target: the Intervals.icu API rejects PUT on TARGET events (HTTP 422 'Cannot change TARGET date'), so an update is done by delete-then-recreate (the recreated event gets a new id).",
 				inputSchema: schemas.PushWeeklyTargetInput,
 				annotations: WRITE_IDEM,
 			},
 			async (args) => {
 				const body: Record<string, unknown> = {
 					category: "TARGET",
-					start_date_local: args.week_start,
-					end_date_local: addDays(args.week_start, 7),
+					// The API rejects TARGET creation without a type
+					// (HTTP 422 "type is required for category TARGET").
+					// Plan Builder weekly targets use type "Ride".
+					type: "Ride",
+					start_date_local: toDateTime(args.week_start),
+					end_date_local: toDateTime(addDays(args.week_start, 7)),
 					load_target: args.load_target,
 				};
 				if (args.phase_name !== undefined) body.name = args.phase_name;
 				if (args.hours_target !== undefined) body.time_target = Math.round(args.hours_target * 3600);
-				const result = args.event_id
-					? await this.client.updateEvent(args.event_id, body)
-					: await this.client.createEvent(body);
-				return text(result);
+
+				if (args.event_id === undefined) {
+					return text(await this.client.createEvent(body));
+				}
+
+				// TARGET events reject PUT, so replace via delete-then-recreate.
+				// Tolerate 404 (already deleted) so the operation is idempotent.
+				try {
+					await this.client.deleteEvent(args.event_id);
+				} catch (e) {
+					if (!(e instanceof IntervalsApiError && e.status === 404)) throw e;
+				}
+				const created = await this.client.createEvent(body);
+				return text({ replaced: true, deleted_event_id: args.event_id, created });
 			},
 		);
 

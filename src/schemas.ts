@@ -116,7 +116,13 @@ export const PushWeeklyTargetInput = {
 	load_target: z.number().int().describe("Target training load (TSS) for the week."),
 	hours_target: z.number().optional().describe("Optional target hours."),
 	phase_name: z.string().optional().describe("Optional phase label."),
-	event_id: z.number().int().optional().describe("Existing TARGET event id to update; omit to create."),
+	event_id: z
+		.number()
+		.int()
+		.optional()
+		.describe(
+			"Existing TARGET event id to replace; omit to create a new target. Replacement is delete-then-recreate (TARGET events reject PUT), so the result carries a new event id.",
+		),
 };
 
 export const ApplyPlanInput = {

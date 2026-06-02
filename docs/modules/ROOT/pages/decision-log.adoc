@@ -96,6 +96,29 @@ Add a small `list_plan_folders` read tool (`GET /folders`) so the assistant can 
 Consequences::
 Positive: `apply_plan` is usable end-to-end. Negative: one tool beyond the original Phase 3 list (minor).
 
+[#adr-005]
+=== ADR-005: Replace TARGET events via delete-then-recreate
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+`push_weekly_target` originally updated an existing target with `PUT /events/{eventId}`.
+Testing (2026-06-02) showed the Intervals.icu API rejects any PUT to a Plan Builder TARGET event with `HTTP 422 "Cannot change TARGET date"` — even when the `start_date_local` is unchanged.
+`DELETE /events/{eventId}` was confirmed permitted on a TARGET event (tested against event 113776607: `200`, then GET → `404`).
+
+Decision::
+When `event_id` is supplied, replace the target by delete-then-recreate: DELETE the existing event, then POST a new TARGET with the same `week_start`, `end_date_local = week_start + 7` (exclusive), `load_target`, and `phase_name`.
+The DELETE tolerates `404` so the operation is idempotent. Creation (no `event_id`) is unchanged.
+Two further requirements were found while implementing this: TARGET creation requires `type` (the API returns `422 "type is required for category TARGET"`; set to `"Ride"`), and event POSTs require a full ISO datetime for `start_date_local` / `end_date_local` (date-only is rejected). A `toDateTime` helper now normalises these for `push_weekly_target`, `push_workout`, and `push_note`.
+
+Consequences::
++
+* Positive: weekly-target recalibration works against Plan Builder targets; single tool retained (no separate `replace_weekly_target`).
+* Negative: the recreated event gets a new id, and Plan Builder linkage / non-supplied fields (e.g. `time_target`, `distance_target`) are not carried over. Plan Builder places TARGETs with `end_date_local = start + 1 day`; recreated targets use the spec's `+ 7 days` (exclusive) convention.
+
 == Requirement change log
 
 [cols="1,3",options="header"]
