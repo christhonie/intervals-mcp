@@ -4,6 +4,33 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.9 — 2026-06-02
+
+Phase 7 — athlete sport-settings write tool.
+
+### Added
+- **`update_sport_settings`** — write FTP, indoor FTP, LTHR, max HR, resting HR,
+  power zones, and HR zones for a sport. Behaviour:
+  - **Preview-by-default safety guard:** without `confirm: true` it returns a diff
+    (current → proposed) and writes nothing; `confirm: true` commits.
+  - Only supplied fields are changed (partial merge); omitted fields untouched.
+  - Zone arrays validated: 7 strictly-ascending values; HR zones' top must not
+    exceed `max_hr` (supplied or existing).
+  - Resolves the **actual** API shape (the handover's `PUT …/settings/{sport}`
+    path does not exist): sport fields go to `PUT /sport-settings/{id}` (record
+    located by its `types` list), and `resting_hr` is athlete-level
+    (`icu_resting_hr` via `PUT /athlete/{id}`).
+- New client methods: `listSportSettings`, `updateSportSettings`, `getAthlete`,
+  `updateAthlete`.
+
+### Verified (live)
+- Preview returns the HR-zone diff and writes nothing (re-read confirmed unchanged).
+- Non-ascending zone array is rejected.
+- Benign `resting_hr` round-trip (64 → 65 → 64) committed and reverted; the PUT is
+  a partial merge (athlete `name` and Ride `ftp`/`hr_zones` untouched).
+- The recommended Ride HR-zone revision `[100,120,150,163,174,181,190]` was **not**
+  applied — left for the athlete's confirmed call per the handover.
+
 ## 0.1.8 — 2026-06-02
 
 CR-01 read side completed.

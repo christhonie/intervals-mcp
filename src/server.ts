@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.8";
+const VERSION = "0.1.9";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -726,6 +726,94 @@ export class IntervalsMcpServer {
 				}
 				const start = args.start_date_local.length > 10 ? args.start_date_local : `${datePart}T00:00:00`;
 				return text(await this.client.applyPlan({ folder_id: args.folder_id, start_date_local: start }));
+			},
+		);
+
+		this.server.registerTool(
+			"update_sport_settings",
+			{
+				description:
+					"Write athlete sport settings (FTP, indoor FTP, LTHR, max HR, resting HR, power zones, HR zones). " +
+					"SAFETY: this changes the foundational parameters behind every zone/TSS/Pw:HR calculation, so it is preview-by-default — " +
+					"without confirm:true it returns a diff (current → proposed) and writes NOTHING. Pass confirm:true to commit. " +
+					"Only the fields you supply are changed; omitted fields are left untouched. Zone arrays must be 7 strictly-ascending values " +
+					"in the same format/order as the record's existing array (HR zones' last value must not exceed max_hr). resting_hr is athlete-level.",
+				inputSchema: schemas.UpdateSportSettingsInput,
+				annotations: WRITE_IDEM,
+			},
+			async (args) => {
+				// Locate the sport-settings record whose type list includes the sport.
+				const all = (await this.client.listSportSettings()) ?? [];
+				const rec = all.find((s: any) => Array.isArray(s.types) && s.types.includes(args.sport));
+				if (!rec) {
+					const known = all.flatMap((s: any) => s.types ?? []);
+					throw new Error(`No sport-settings record matches sport "${args.sport}". Known sports: ${known.join(", ")}`);
+				}
+
+				// Validate zone arrays: strictly ascending; HR top ≤ effective max_hr.
+				const ensureAscending = (label: string, arr?: number[]) => {
+					if (!arr) return;
+					for (let i = 1; i < arr.length; i++) {
+						if (arr[i] <= arr[i - 1]) {
+							throw new Error(`${label} must be strictly ascending; got [${arr.join(", ")}]`);
+						}
+					}
+				};
+				ensureAscending("power_zones", args.power_zones);
+				ensureAscending("hr_zones", args.hr_zones);
+				if (args.hr_zones) {
+					const effectiveMaxHr = args.max_hr ?? rec.max_hr;
+					const top = args.hr_zones[args.hr_zones.length - 1];
+					if (effectiveMaxHr != null && top > effectiveMaxHr) {
+						throw new Error(`hr_zones top (${top}) exceeds max_hr (${effectiveMaxHr})`);
+					}
+				}
+
+				// Build the sport-level diff (only supplied fields).
+				const sportFields = ["ftp", "indoor_ftp", "lthr", "max_hr", "power_zones", "hr_zones"] as const;
+				const diff: Record<string, { current: unknown; proposed: unknown }> = {};
+				const sportBody: Record<string, unknown> = {};
+				for (const f of sportFields) {
+					const proposed = (args as any)[f];
+					if (proposed === undefined) continue;
+					sportBody[f] = proposed;
+					diff[f] = { current: rec[f] ?? null, proposed };
+				}
+
+				// resting_hr is athlete-level (icu_resting_hr), not on the sport record.
+				let athleteCurrentResting: number | null = null;
+				if (args.resting_hr !== undefined) {
+					const athlete = await this.client.getAthlete();
+					athleteCurrentResting = athlete?.icu_resting_hr ?? null;
+					diff.resting_hr = { current: athleteCurrentResting, proposed: args.resting_hr };
+				}
+
+				if (Object.keys(diff).length === 0) {
+					throw new Error("No settings fields supplied to update.");
+				}
+
+				// Preview-by-default: write nothing unless confirm:true.
+				if (args.confirm !== true) {
+					return text({
+						preview: true,
+						note: "No changes written. Re-call with confirm:true to commit.",
+						sport: args.sport,
+						sport_settings_id: rec.id,
+						diff,
+					});
+				}
+
+				// Commit. Sport-level fields first, then athlete-level resting_hr.
+				const result: Record<string, unknown> = { confirmed: true, sport: args.sport, sport_settings_id: rec.id, changed: Object.keys(diff) };
+				if (Object.keys(sportBody).length) {
+					const updated = await this.client.updateSportSettings(rec.id, sportBody);
+					result.sport_settings = pick(updated ?? {}, ["id", "types", ...sportFields]);
+				}
+				if (args.resting_hr !== undefined) {
+					const updatedAthlete = await this.client.updateAthlete({ icu_resting_hr: args.resting_hr });
+					result.icu_resting_hr = updatedAthlete?.icu_resting_hr ?? args.resting_hr;
+				}
+				return text(result);
 			},
 		);
 	}

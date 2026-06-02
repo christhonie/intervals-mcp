@@ -178,4 +178,26 @@ export class IntervalsClient {
 	applyPlan(body: { folder_id: number; start_date_local: string; extra_workouts?: unknown[] }): Promise<any> {
 		return this.request("POST", this.athletePath("/events/apply-plan"), { body });
 	}
+
+	// ── Athlete / Sport settings ──
+
+	/** All sport-settings records for the athlete (one per sport-type group). */
+	listSportSettings(): Promise<any[]> {
+		return this.request("GET", this.athletePath("/sport-settings"));
+	}
+
+	/** Update one sport-settings record by its id (ftp, lthr, max_hr, zones, …). */
+	updateSportSettings(id: number | string, body: Record<string, unknown>): Promise<any> {
+		return this.request("PUT", this.athletePath(`/sport-settings/${id}`), { body });
+	}
+
+	/** The athlete object. Holds athlete-level fields such as icu_resting_hr. */
+	getAthlete(): Promise<any> {
+		return this.request("GET", `/api/v1/athlete/${this.athleteId}`);
+	}
+
+	/** Update athlete-level fields (e.g. icu_resting_hr). */
+	updateAthlete(body: Record<string, unknown>): Promise<any> {
+		return this.request("PUT", `/api/v1/athlete/${this.athleteId}`, { body });
+	}
 }

@@ -160,3 +160,33 @@ export const ApplyPlanInput = {
 };
 
 export const ListPlanFoldersInput = {};
+
+const zoneArray = (unit: string) =>
+	z
+		.array(z.number().int().positive())
+		.length(7)
+		.describe(`Seven ascending zone-boundary values in ${unit}. Same format/order as the existing array on the record.`);
+
+export const UpdateSportSettingsInput = {
+	sport: z
+		.string()
+		.describe("Sport whose settings to update, e.g. Ride, Run, Swim. Matched against each settings record's type list."),
+	ftp: z.number().int().positive().optional().describe("Functional threshold power (watts)."),
+	indoor_ftp: z.number().int().positive().optional().describe("Separate indoor FTP (watts), if applicable."),
+	lthr: z.number().int().positive().optional().describe("Lactate threshold heart rate (bpm)."),
+	max_hr: z.number().int().positive().optional().describe("Maximum heart rate (bpm)."),
+	resting_hr: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe("Resting heart rate (bpm). Athlete-level (icu_resting_hr), written to the athlete record, not the sport settings."),
+	power_zones: zoneArray("watts").optional(),
+	hr_zones: zoneArray("bpm").optional(),
+	confirm: z
+		.boolean()
+		.optional()
+		.describe(
+			"Safety guard. When false/omitted the tool returns a preview diff (current → proposed) WITHOUT writing. Pass true to commit the change.",
+		),
+};
