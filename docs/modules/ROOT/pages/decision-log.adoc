@@ -146,7 +146,7 @@ Rollout:: Pilot week 2026-06-01 applied and UI-verified. The remaining 27 weeks 
 :adr-status: Accepted
 :adr-date: 2026-06-02
 
-Status:: Accepted (on branch `feature/redis-oauth-store`)
+Status:: Accepted
 
 Context::
 Sessions and OAuth tokens were in-memory per pod, so every rollout forced claude.ai to re-authenticate / re-initialise — surfacing as the opaque "Error occurred during tool execution" (see BUG-01). The cluster has a Redis instance available.
