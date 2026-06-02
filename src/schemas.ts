@@ -149,9 +149,8 @@ export const PushSportTargetsInput = {
 				notes: z.string().optional().describe("Free-text coaching note for this sport (stored as the event description)."),
 			}),
 		)
-		.min(1)
 		.describe(
-			"One entry per sport. Each becomes a separate TARGET event in the week. All existing TARGET events in the week are replaced.",
+			"One entry per sport. Each becomes a separate TARGET event in the week. All existing TARGET events in the week are replaced. Pass an empty array to CLEAR the week — delete all of its TARGET events and recreate none (e.g. travel / no-target weeks). NOTE events in the week are never touched.",
 		),
 };
 

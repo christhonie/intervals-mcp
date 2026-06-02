@@ -1,6 +1,6 @@
 {
   "name": "intervals-mcp",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Remote (Streamable HTTP) Model Context Protocol server for the Intervals.icu training API, built for claude.ai custom connectors. Replaces the IcuSync managed MCP with coaching-specific tools.",
   "main": "dist/http-server.js",
   "type": "module",

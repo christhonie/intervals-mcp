@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.6";
+const VERSION = "0.1.7";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -649,7 +649,7 @@ export class IntervalsMcpServer {
 			"push_sport_targets",
 			{
 				description:
-					"Set per-sport weekly targets for a week. Per-sport breakdown is modelled as separate TARGET events (one per sport), since the API has no nested sport-target field and rejects PUT on TARGET events. This REPLACES all existing TARGET events in the week (delete-then-recreate) with one TARGET per supplied sport, each carrying load_target, duration (time_target), optional distance, and notes (description). Per-sport loads should sum to the intended weekly total.",
+					"Set per-sport weekly targets for a week. Per-sport breakdown is modelled as separate TARGET events (one per sport), since the API has no nested sport-target field and rejects PUT on TARGET events. This REPLACES all existing TARGET events in the week (delete-then-recreate) with one TARGET per supplied sport, each carrying load_target, duration (time_target), optional distance, and notes (description). Per-sport loads should sum to the intended weekly total. Pass an empty sport_targets array to CLEAR the week (delete all its TARGET events, recreate none) — useful for travel / no-target weeks. NOTE events are never touched.",
 				inputSchema: schemas.PushSportTargetsInput,
 				annotations: WRITE,
 			},

@@ -4,6 +4,26 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.7 — 2026-06-02
+
+Phase 5 enablement — clear-a-week support for `push_sport_targets`.
+
+### Changed
+- **`push_sport_targets` accepts an empty `sport_targets[]`** — meaning "clear the
+  week": delete all of its TARGET events and recreate none. Resolves the open
+  question in CR-06 (previously the schema enforced `.min(1)`). NOTE events in the
+  week are never touched. Useful for travel / no-target weeks and for tidying
+  stray placeholders. The non-empty behaviour (one TARGET per sport) is unchanged.
+
+### Applied (live calendar, athlete i579914)
+- **CR-04** — removed the null-load TARGET placeholder on the 2026-05-04 week.
+- **CR-05** — relabelled the 2026-07-27 week as Base recovery (Ride 99/120 min,
+  WeightTraining 66/90 min, Base-recovery notes).
+- **CR-06** — cleared the Build TARGET events on the UK-trip weeks 2026-08-03 and
+  2026-08-10; the week-row NOTE events (113843239, 113843254) were preserved.
+- **CR-07** — verified Build progression (spot-checked 2026-08-17, 2026-09-07,
+  2026-09-21, 2026-11-02 — loads and Phase 2/3 notes correct). No changes needed.
+
 ## 0.1.6 — 2026-06-02
 
 Coaching-agent review follow-ups (BUG-03, BUG-04).
