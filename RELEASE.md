@@ -4,6 +4,31 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.4 — 2026-06-02 (branch: feature/redis-oauth-store)
+
+### Added
+- **Optional Redis-backed OAuth state** (`src/oauth-store.ts`). When `REDIS_URL`
+  is set, OAuth codes/access/refresh tokens persist in Redis so they survive pod
+  rollouts — claude.ai is no longer forced to re-authenticate after a deploy.
+  Unset → in-memory (unchanged). Redis errors degrade gracefully to in-memory
+  behaviour (reads miss → re-auth) rather than failing/crashing.
+- `MinimalOAuthProvider` refactored to an injected async `OAuthStore`; generic
+  and reusable as a template for the other MCP servers (see README).
+- `ioredis` dependency.
+
+### Verified
+- Token persistence proven against the cluster Redis: a token issued by one
+  server process validated successfully on a second fresh process (simulated
+  rollout) — `HTTP 200`, tool call returned data. Test keys cleaned up.
+
+### Deploy notes
+- This is a **template branch** — not merged to main, not deployed (ArgoCD
+  tracks main). To activate: build/push the 0.1.4 image, add `REDIS_URL` to the
+  `intervals-mcp-secrets` Secret (sourced from `redis/redis-credentials`), merge,
+  then reconnect the connector ONCE (the pre-existing token predates Redis).
+- The MCP session transport remains in-memory by design; only the OAuth layer is
+  persisted.
+
 ## 0.1.3 — 2026-06-02
 
 ### Fixed

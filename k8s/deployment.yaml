@@ -30,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: intervals-mcp
-          image: docker.io/christhonie/intervals-mcp:0.1.3
+          image: docker.io/christhonie/intervals-mcp:0.1.4
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

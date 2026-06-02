@@ -140,6 +140,27 @@ Consequences::
 
 Rollout:: Pilot week 2026-06-01 applied and UI-verified. The remaining 27 weeks are delegated to a separate session, driven by the value table in the handover document.
 
+[#adr-007]
+=== ADR-007: Optional Redis-backed OAuth state (template)
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted (on branch `feature/redis-oauth-store`)
+
+Context::
+Sessions and OAuth tokens were in-memory per pod, so every rollout forced claude.ai to re-authenticate / re-initialise — surfacing as the opaque "Error occurred during tool execution" (see BUG-01). The cluster has a Redis instance available.
+
+Decision::
+Persist only the **OAuth layer** in Redis (the part that forces re-authentication), via a pluggable `OAuthStore` (`src/oauth-store.ts`): in-memory by default, Redis when `REDIS_URL` is set. The MCP transport/session stays in-memory (a live transport cannot be serialised; making it durable would need stateless mode or sticky sessions — out of scope). Redis errors degrade gracefully to in-memory behaviour. Built as a generic template for the sibling MCP servers.
+
+Consequences::
++
+* Positive: tokens survive rollouts — no forced re-auth after a deploy. Generic and reusable (`createOAuthStore("<app>:oauth")`). Graceful degradation keeps the server up if Redis is down.
+* Negative: a new optional dependency (Redis) and `ioredis`. The MCP session id is still unknown to a new pod after a rollout, so the client must re-initialise a session (expected to be transparent while the token is valid). One reconnect is still required immediately after first enabling Redis, because the pre-existing token predates the Redis store.
+
+Scope:: Implemented on a branch as a template; not merged or deployed (ArgoCD tracks `main`).
+
 == Requirement change log
 
 [cols="1,3",options="header"]
