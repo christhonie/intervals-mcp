@@ -80,9 +80,15 @@ export class RedisOAuthStore implements OAuthStore {
 		private readonly prefix: string,
 	) {
 		this.redis = new Redis(url, {
-			maxRetriesPerRequest: 2,
-			enableOfflineQueue: true,
-			connectTimeout: 5000,
+			// Fail fast so a Redis outage degrades to cache-miss (→ re-auth) rather
+			// than hanging: no offline command queue (commands reject immediately
+			// while disconnected instead of waiting for reconnect), no per-command
+			// retries, and bounded connect/command timeouts. ioredis still
+			// reconnects in the background, so the store self-heals once Redis is back.
+			enableOfflineQueue: false,
+			maxRetriesPerRequest: 0,
+			connectTimeout: 3000,
+			commandTimeout: 1000,
 			lazyConnect: false,
 		});
 		this.redis.on("error", (e) => console.error(`[oauth-store] redis error: ${e.message}`));
