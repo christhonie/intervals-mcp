@@ -22,6 +22,7 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { IntervalsMcpServer } from "./server.js";
 import { loadConfig } from "./config.js";
 import { MinimalOAuthProvider } from "./oauth-provider.js";
+import { createOAuthStore } from "./oauth-store.js";
 
 function requireEnv(name: string): string {
 	const v = process.env[name];
@@ -54,11 +55,16 @@ const config = loadConfig();
 const PORT = Number(process.env.PORT ?? 8000);
 const HOST = process.env.HOST ?? "0.0.0.0";
 
+// OAuth state store: Redis when REDIS_URL is set (survives rollouts), else
+// in-memory. The prefix isolates this server's keys in a shared Redis.
+const oauthStore = createOAuthStore("intervals-mcp:oauth");
+
 const provider = new MinimalOAuthProvider({
 	clientId: OAUTH_CLIENT_ID,
 	clientSecret: OAUTH_CLIENT_SECRET,
 	redirectUris: REDIRECT_URIS,
 	clientName: "Intervals.icu MCP",
+	store: oauthStore,
 });
 
 const app = express();

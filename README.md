@@ -99,6 +99,34 @@ endpoint: `https://icu-mcp.christhonie.co.za/mcp`.
 Requirements, design, and the decision log live under [`docs/`](docs/) as an
 Antora ROOT module.
 
+## OAuth state persistence (optional, Redis)
+
+By default the OAuth provider keeps codes/tokens in memory, so a pod rollout
+forces claude.ai to re-authenticate. Set `REDIS_URL` to persist them in Redis
+instead — tokens then survive rollouts (no re-auth after a deploy). Unset =
+in-memory. If Redis is unreachable the store degrades gracefully (behaves as
+in-memory) rather than failing auth. See `src/oauth-store.ts`.
+
+### Reusing this in other MCP servers (template)
+
+`src/oauth-store.ts` is generic and the `MinimalOAuthProvider` changes carry no
+Intervals-specific logic, so the pattern ports directly to the sibling MCP
+servers (`fatsecret-mcp`, `hevy-mcp`):
+
+1. Copy `src/oauth-store.ts` verbatim.
+2. `npm install ioredis`.
+3. In the provider, replace the in-memory `Map`s with the injected `OAuthStore`
+   (codes/access/refresh) and make the methods `await` the store (see this
+   repo's `src/oauth-provider.ts`).
+4. In the HTTP entry point: `const store = createOAuthStore("<app>:oauth")` and
+   pass `store` into the provider. **Use an app-unique prefix** so multiple
+   servers can share one Redis without key collisions.
+5. Add `REDIS_URL` to the app's K8s Secret (a distinct Redis DB number per app
+   is recommended). `envFrom: secretRef` injects it automatically.
+
+The MCP transport/session remains in-memory by design — this template persists
+only the OAuth layer (the part that otherwise forces re-authentication).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

@@ -4,6 +4,50 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.5 — 2026-06-02 (branch: feature/redis-oauth-store)
+
+PR #1 review fixes (supersedes the 0.1.4 branch test image before merge).
+
+### Fixed
+- Redis store fails fast on outage (`enableOfflineQueue: false`, `maxRetriesPerRequest: 0`,
+  bounded `connectTimeout`/`commandTimeout`) so a Redis outage degrades to
+  cache-miss → re-auth instead of hanging — honouring the documented promise.
+
+### Docs / housekeeping
+- Documented the intentional refresh-token TTL (30-day rotating; was non-expiring in-memory).
+- Corrected 0.1.4 release/deploy semantics and ADR-007 status/scope wording for `main`.
+- Synced `package-lock.json` version metadata.
+- New image tag `0.1.5` (the review fix changes runtime behaviour, so the tag is bumped).
+
+## 0.1.4 — 2026-06-02 (branch: feature/redis-oauth-store)
+
+### Added
+- **Optional Redis-backed OAuth state** (`src/oauth-store.ts`). When `REDIS_URL`
+  is set, OAuth codes/access/refresh tokens persist in Redis so they survive pod
+  rollouts — claude.ai is no longer forced to re-authenticate after a deploy.
+  Unset → in-memory (unchanged). Redis errors degrade gracefully to in-memory
+  behaviour (reads miss → re-auth) rather than failing/crashing.
+- `MinimalOAuthProvider` refactored to an injected async `OAuthStore`; generic
+  and reusable as a template for the other MCP servers (see README).
+- `ioredis` dependency.
+
+### Verified
+- Token persistence proven against the cluster Redis: a token issued by one
+  server process validated successfully on a second fresh process (simulated
+  rollout) — `HTTP 200`, tool call returned data. Test keys cleaned up.
+
+### Deploy notes
+- Image `0.1.4` is built and pushed. `REDIS_URL` has been added to the
+  `intervals-mcp-secrets` Secret (sourced from `redis/redis-credentials`).
+- Validated live: deployed from this branch and confirmed an OAuth token survives
+  a real pod rollout (token issued, `rollout restart`, same token reused → 200).
+- On merge to `main`, ArgoCD deploys `0.1.4` (the manifest image tag is bumped in
+  this PR). After the first deploy that switches on Redis, reconnect the connector
+  ONCE — the pre-existing token predates the Redis store; subsequent rollouts need
+  no re-auth.
+- The MCP session transport remains in-memory by design; only the OAuth layer is
+  persisted.
+
 ## 0.1.3 — 2026-06-02
 
 ### Fixed
