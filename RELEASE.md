@@ -4,6 +4,32 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.10 — 2026-06-02
+
+Phase 8 — expose activity-type fitness-contribution config.
+
+### Added
+- **`update_activity_type`** — configure an activity type's CTL (Fitness) and ATL
+  (Fatigue) contribution multipliers (`icu_type_settings`: `{type, ctlFactor,
+  atlFactor}`, 1.0 = 100%). Preview-by-default safety guard (no write unless
+  `confirm: true`); reads the full `icu_type_settings` array, merges the entry for
+  the type, and writes it back via `PUT /athlete/{id}` (other types untouched).
+  Verified live: preview returns the diff and writes nothing; missing-factor input
+  is rejected.
+
+### Investigation note (important)
+- The activity-type config is `icu_type_settings` (athlete-level), **not** a sport
+  setting or the (nonexistent) `athlete-types` endpoint the handover guessed. The
+  only fields are `ctlFactor`/`atlFactor`.
+- These multipliers scale how a type's `icu_training_load` feeds the **PMC**. They
+  do **not** drive Intervals' HR/power-derived load shown on the **calendar day
+  tile / Plan Builder compliance ring**. Evidence: WeightTraining gym load already
+  feeds CTL/ATL at full weight (Phase 6), so its effective factor is already ~1,
+  yet the ring still shows 0 — i.e. the ring uses a separate computed-load path.
+  So setting WeightTraining to 100% is expected to be a no-op for the tile/ring.
+  The tool is provided to expose the config as requested; the display discrepancy
+  remains a Path A (HR strap) / Path C (accept) matter. Not auto-applied.
+
 ## 0.1.9 — 2026-06-02
 
 Phase 7 — athlete sport-settings write tool.

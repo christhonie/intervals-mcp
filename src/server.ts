@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.9";
+const VERSION = "0.1.10";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -814,6 +814,59 @@ export class IntervalsMcpServer {
 					result.icu_resting_hr = updatedAthlete?.icu_resting_hr ?? args.resting_hr;
 				}
 				return text(result);
+			},
+		);
+
+		this.server.registerTool(
+			"update_activity_type",
+			{
+				description:
+					"Configure an activity type's fitness contribution — its CTL (Fitness) and ATL (Fatigue) multipliers in the athlete's " +
+					"Activity Types settings (icu_type_settings). 1.0 = 100% contribution, 0 = excluded. " +
+					"SAFETY: preview-by-default — without confirm:true it returns a diff (current → proposed) and writes NOTHING; pass confirm:true to commit. " +
+					"The whole icu_type_settings array is read, the entry for `type` merged, and written back via the athlete record (other types untouched). " +
+					"NOTE: these factors scale how the type's icu_training_load feeds the PMC; they do NOT change Intervals' HR/power-derived load shown on the calendar day tile.",
+				inputSchema: schemas.UpdateActivityTypeInput,
+				annotations: WRITE_IDEM,
+			},
+			async (args) => {
+				if (args.ctl_factor === undefined && args.atl_factor === undefined) {
+					throw new Error("Provide at least one of ctl_factor / atl_factor.");
+				}
+				const athlete = await this.client.getAthlete();
+				const current: any[] = Array.isArray(athlete?.icu_type_settings) ? athlete.icu_type_settings : [];
+				const existing = current.find((e: any) => e.type === args.type);
+
+				const ctlFactor = args.ctl_factor ?? existing?.ctlFactor;
+				const atlFactor = args.atl_factor ?? existing?.atlFactor;
+				if (ctlFactor === undefined || atlFactor === undefined) {
+					throw new Error(
+						`No existing override for "${args.type}" to inherit from — provide both ctl_factor and atl_factor.`,
+					);
+				}
+				const proposedEntry = { type: args.type, ctlFactor, atlFactor };
+
+				const diff = {
+					[args.type]: {
+						current: existing ?? "default (no override)",
+						proposed: proposedEntry,
+					},
+				};
+
+				if (args.confirm !== true) {
+					return text({
+						preview: true,
+						note: "No changes written. Re-call with confirm:true to commit.",
+						diff,
+					});
+				}
+
+				// Merge into the full array (replace the entry for this type, else append).
+				const merged = current.filter((e: any) => e.type !== args.type);
+				merged.push(proposedEntry);
+				const updated = await this.client.updateAthlete({ icu_type_settings: merged });
+				const written = (updated?.icu_type_settings ?? merged).find((e: any) => e.type === args.type);
+				return text({ confirmed: true, type: args.type, written, icu_type_settings: updated?.icu_type_settings ?? merged });
 			},
 		);
 	}

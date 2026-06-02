@@ -190,3 +190,28 @@ export const UpdateSportSettingsInput = {
 			"Safety guard. When false/omitted the tool returns a preview diff (current → proposed) WITHOUT writing. Pass true to commit the change.",
 		),
 };
+
+const factor = () =>
+	z
+		.number()
+		.min(0)
+		.max(1)
+		.describe("Contribution multiplier 0–1 (1.0 = 100%). Stored in the athlete's icu_type_settings.");
+
+export const UpdateActivityTypeInput = {
+	type: z
+		.string()
+		.describe("Activity type to configure, e.g. WeightTraining, Yoga, Ride. Matches Intervals' Settings → Activity Types row."),
+	ctl_factor: factor()
+		.optional()
+		.describe("Fitness (CTL) contribution multiplier 0–1 (1.0 = 100%)."),
+	atl_factor: factor()
+		.optional()
+		.describe("Fatigue (ATL) contribution multiplier 0–1 (1.0 = 100%)."),
+	confirm: z
+		.boolean()
+		.optional()
+		.describe(
+			"Safety guard. When false/omitted the tool returns a preview diff (current → proposed) WITHOUT writing. Pass true to commit.",
+		),
+};
