@@ -4,6 +4,21 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.5 — 2026-06-02 (branch: feature/redis-oauth-store)
+
+PR #1 review fixes (supersedes the 0.1.4 branch test image before merge).
+
+### Fixed
+- Redis store fails fast on outage (`enableOfflineQueue: false`, `maxRetriesPerRequest: 0`,
+  bounded `connectTimeout`/`commandTimeout`) so a Redis outage degrades to
+  cache-miss → re-auth instead of hanging — honouring the documented promise.
+
+### Docs / housekeeping
+- Documented the intentional refresh-token TTL (30-day rotating; was non-expiring in-memory).
+- Corrected 0.1.4 release/deploy semantics and ADR-007 status/scope wording for `main`.
+- Synced `package-lock.json` version metadata.
+- New image tag `0.1.5` (the review fix changes runtime behaviour, so the tag is bumped).
+
 ## 0.1.4 — 2026-06-02 (branch: feature/redis-oauth-store)
 
 ### Added
