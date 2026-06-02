@@ -211,6 +211,13 @@ export class MinimalOAuthProvider implements OAuthServerProvider {
 		};
 		const refreshEntry: RefreshTokenEntry = { clientId, scopes, resource };
 		await this.store.set("access", accessToken, accessEntry, this.accessTokenTtl);
+		// Intentional behaviour change vs. the previous in-memory implementation,
+		// where refresh tokens never expired (the old Map was never cleaned up).
+		// Refresh tokens now carry refreshTokenTtl (default 30 days) and are rotated
+		// on every refresh — each exchangeRefreshToken issues a fresh token with a
+		// fresh 30-day window. So an actively-used connector never expires; the TTL
+		// only forces re-auth after ~30 days of total inactivity. This is better
+		// hygiene than an immortal refresh token persisted in Redis.
 		await this.store.set("refresh", refreshToken, refreshEntry, this.refreshTokenTtl);
 		return {
 			access_token: accessToken,
