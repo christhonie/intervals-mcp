@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.7";
+const VERSION = "0.1.8";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -204,11 +204,17 @@ export class IntervalsMcpServer {
 					id: e.id,
 					name: e.name,
 					start_date_local: e.start_date_local,
+					end_date_local: e.end_date_local ?? null,
 					type: e.type,
 					description: e.description,
 					icu_training_load: e.icu_training_load,
 					moving_time: e.moving_time,
 					indoor: e.indoor,
+					// Note-row presentation fields (meaningful for category NOTE):
+					// for_week renders the note on the week row; color is the calendar
+					// swatch; end_date_local (above) is the exclusive range end.
+					for_week: e.for_week ?? null,
+					color: e.color ?? null,
 					paired_activity_id: e.paired_activity_id ?? null,
 					tags: e.tags ?? null,
 					completed: e.paired_activity_id != null,

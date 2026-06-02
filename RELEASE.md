@@ -4,6 +4,26 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.8 — 2026-06-02
+
+CR-01 read side completed.
+
+### Added
+- **CR-01 (read side) — `get_events` note projection** now returns `color`,
+  `end_date_local`, and `for_week` (previously only the `push_note`/`update_note`
+  write side carried them; the read projection omitted them). Verified live: a
+  week-row NOTE round-trips `color: #6b7280`, `for_week: true`, and the exclusive
+  `end_date_local`. CR-01 is now complete end-to-end.
+
+### Investigation — Phase 6 (WeightTraining load in PMC)
+- Concluded **no code change required**. The Activity schema has no separate
+  manual-load field/flag; `icu_training_load` is the sole load field, it persists
+  across edits, and all 11 historical gym activities already carry it. A PMC
+  reconstruction (daily load implied by the ATL recurrence) matches the activity
+  sum **including** gym on pure-gym days — i.e. WeightTraining load is already
+  feeding CTL/ATL. The "load not counting" premise was not reproduced. Details in
+  the handover doc; awaiting the operator's UI confirmation before closing.
+
 ## 0.1.7 — 2026-06-02
 
 Phase 5 enablement — clear-a-week support for `push_sport_targets`.
