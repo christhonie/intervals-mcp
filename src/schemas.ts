@@ -67,6 +67,18 @@ export const PushNoteInput = {
 		.boolean()
 		.optional()
 		.describe("When true, renders as a week-row text block (preferred for weekly notes)."),
+	color: z.string().optional().describe("Optional hex colour for the note, e.g. #33aa33."),
+	tags: z.array(z.string()).optional(),
+};
+
+export const UpdateNoteInput = {
+	event_id: z.number().int().describe("Id of the NOTE event to update."),
+	name: z.string().optional(),
+	description: z.string().optional(),
+	color: z.string().optional().describe("Hex colour, e.g. #33aa33."),
+	start_date_local: isoDate().optional().describe("New first day of the note (ISO)."),
+	end_date_local: isoDate().optional().describe("New exclusive end boundary (day after the last visible day)."),
+	for_week: z.boolean().optional().describe("Week-row rendering toggle."),
 	tags: z.array(z.string()).optional(),
 };
 

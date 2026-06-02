@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -313,8 +313,30 @@ export class IntervalsMcpServer {
 				if (args.description !== undefined) body.description = args.description;
 				if (args.end_date_local !== undefined) body.end_date_local = toDateTime(args.end_date_local);
 				if (args.for_week !== undefined) body.for_week = args.for_week;
+				if (args.color !== undefined) body.color = args.color;
 				if (args.tags !== undefined) body.tags = args.tags;
 				return text(await this.client.createEvent(body));
+			},
+		);
+
+		this.server.registerTool(
+			"update_note",
+			{
+				description:
+					"Update an existing calendar Note (category NOTE). NOTE events accept PUT, so this is a direct in-place update (unlike TARGET events). Provide event_id plus any of name, description, color, start_date_local, end_date_local, for_week, tags.",
+				inputSchema: schemas.UpdateNoteInput,
+				annotations: WRITE_IDEM,
+			},
+			async (args) => {
+				const body: Record<string, unknown> = { category: "NOTE" };
+				if (args.name !== undefined) body.name = args.name;
+				if (args.description !== undefined) body.description = args.description;
+				if (args.color !== undefined) body.color = args.color;
+				if (args.start_date_local !== undefined) body.start_date_local = toDateTime(args.start_date_local);
+				if (args.end_date_local !== undefined) body.end_date_local = toDateTime(args.end_date_local);
+				if (args.for_week !== undefined) body.for_week = args.for_week;
+				if (args.tags !== undefined) body.tags = args.tags;
+				return text(await this.client.updateEvent(args.event_id, body));
 			},
 		);
 

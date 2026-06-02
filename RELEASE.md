@@ -4,6 +4,29 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.3 — 2026-06-02
+
+### Fixed
+- **Trust proxy / rate limiter (BUG-01 contributor):** set Express `trust proxy: 1`.
+  Behind the nginx ingress, `X-Forwarded-For` was set while `trust proxy` was
+  false, so the MCP SDK's rate limiters on the OAuth routes threw
+  `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` (seen in pod logs). Now resolved.
+
+### Added
+- **CR-01:** `push_note` accepts an optional `color` (hex string, e.g. `#33aa33`).
+- **CR-02:** `update_note` — update an existing NOTE event in place (name,
+  description, color, start/end dates, for_week, tags). NOTE events accept PUT
+  (verified), so no delete-then-recreate is needed.
+
+### Diagnostic note (BUG-01)
+- The reported "Error occurred during tool execution on every tool" was **not**
+  a server fault. The pod was healthy and a fresh end-to-end PKCE → token →
+  initialize → tools/call session succeeded. Root cause: claude.ai held a stale
+  `Mcp-Session-Id` from a pre-rollout pod; the new pod returns 404 "Unknown
+  session", which claude.ai surfaces opaquely. **Resolution: reconnect the
+  connector / start a new conversation after any deploy.** Sessions are in-memory
+  per pod (single replica) by design.
+
 ## 0.1.2 — 2026-06-02
 
 ### Added

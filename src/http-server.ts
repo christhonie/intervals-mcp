@@ -63,6 +63,10 @@ const provider = new MinimalOAuthProvider({
 
 const app = express();
 app.disable("x-powered-by");
+// Behind the nginx ingress, requests carry X-Forwarded-For. Trust the single
+// proxy hop so the MCP SDK's rate limiters (mounted on the OAuth routes) read
+// the real client IP instead of throwing ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set("trust proxy", 1);
 app.use(express.json({ limit: "1mb" }));
 
 // Health probe (unauthenticated).
