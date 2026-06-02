@@ -159,7 +159,7 @@ Consequences::
 * Positive: tokens survive rollouts — no forced re-auth after a deploy. Generic and reusable (`createOAuthStore("<app>:oauth")`). Graceful degradation keeps the server up if Redis is down.
 * Negative: a new optional dependency (Redis) and `ioredis`. The MCP session id is still unknown to a new pod after a rollout, so the client must re-initialise a session (expected to be transparent while the token is valid). One reconnect is still required immediately after first enabling Redis, because the pre-existing token predates the Redis store.
 
-Scope:: Implemented on a branch as a template; not merged or deployed (ArgoCD tracks `main`).
+Scope:: Persists only the OAuth layer (codes/tokens), not the MCP session transport. Activated per deployment by setting `REDIS_URL`; built as a reusable template for the sibling MCP servers (`fatsecret-mcp`, `hevy-mcp`).
 
 == Requirement change log
 
