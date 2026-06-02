@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.5";
+const VERSION = "0.1.6";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -78,6 +78,15 @@ function wellnessDate(r: any): string {
 const RO = { readOnlyHint: true, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, idempotentHint: false } as const;
 const WRITE_IDEM = { readOnlyHint: false, idempotentHint: true } as const;
+
+/**
+ * Cycling activity types. Used to split `rides` from everything else
+ * (`gymSessions`: WeightTraining, Yoga, and any future ancillary type). A
+ * non-cycling activity (e.g. Yoga/IMT) must never land in `rides`, or it
+ * contaminates Ride TSS/volume calculations (BUG-03).
+ */
+const RIDE_TYPES = new Set(["Ride", "VirtualRide"]);
+const isRide = (type: unknown): boolean => RIDE_TYPES.has(String(type));
 
 export class IntervalsMcpServer {
 	public server: McpServer;
@@ -159,8 +168,8 @@ export class IntervalsMcpServer {
 					.map((a: any) => pick(a, fields))
 					.sort((a, b) => String(b.start_date_local).localeCompare(String(a.start_date_local)));
 				return text({
-					rides: mapped.filter((a) => a.type !== "WeightTraining"),
-					gymSessions: mapped.filter((a) => a.type === "WeightTraining"),
+					rides: mapped.filter((a) => isRide(a.type)),
+					gymSessions: mapped.filter((a) => !isRide(a.type)),
 				});
 			},
 		);
@@ -405,8 +414,8 @@ export class IntervalsMcpServer {
 				const valid = (acts ?? []).filter((a: any) => a.moving_time != null);
 				const hours = (list: any[]) => list.reduce((s, a) => s + (toNum(a.moving_time) ?? 0), 0) / 3600;
 				const load = (list: any[]) => list.reduce((s, a) => s + (toNum(a.icu_training_load) ?? 0), 0);
-				const rides = valid.filter((a: any) => a.type !== "WeightTraining");
-				const gym = valid.filter((a: any) => a.type === "WeightTraining");
+				const rides = valid.filter((a: any) => isRide(a.type));
+				const gym = valid.filter((a: any) => !isRide(a.type));
 				const ctls = (wellness ?? []).map((r: any) => toNum(r.ctl)).filter((n): n is number => n !== null);
 				const atls = (wellness ?? []).map((r: any) => toNum(r.atl)).filter((n): n is number => n !== null);
 				const tsbs = (wellness ?? [])
@@ -489,7 +498,7 @@ export class IntervalsMcpServer {
 			"get_weekly_targets",
 			{
 				description:
-					"Read Plan Builder weekly load targets (category TARGET), grouped by week. Each week returns the aggregate load_target (sum across sports), a current_week flag, compliance (on_track/under/over/unknown) vs completed load, and a sport_targets array — one entry per sport TARGET event in the week with its load_target, duration_minutes, distance_m, and notes.",
+					"Read Plan Builder weekly load targets (category TARGET), grouped by week. Each week returns the aggregate load_target (sum across sports), a current_week flag, compliance (on_track/under/over/unknown) vs completed load, and a sport_targets array — one entry per sport TARGET event in the week with its load_target, duration_minutes, distance_m, notes, and its own completed_load + compliance for that sport (Ride targets are credited with both Ride and VirtualRide activities).",
 				inputSchema: schemas.GetWeeklyTargetsInput,
 				annotations: RO,
 			},
@@ -509,18 +518,38 @@ export class IntervalsMcpServer {
 					byWeek.get(ws)!.push(e);
 				}
 
-				// Completed load per week for started weeks (compliance).
+				// Completed load per week for started weeks (compliance), both as a
+				// week total and split by activity type (for per-sport compliance).
 				const startedWeeks = [...byWeek.keys()].filter((w) => w <= todayStr);
 				const loadByWeek = new Map<string, number>();
+				const loadByWeekType = new Map<string, Map<string, number>>();
 				if (startedWeeks.length) {
 					const minStart = startedWeeks.sort()[0];
 					const acts = (await this.client.listActivities({ oldest: minStart, newest: todayStr })) ?? [];
 					for (const a of acts) {
 						if (a.moving_time == null) continue;
 						const ws = weekStartMonday(String(a.start_date_local).slice(0, 10));
-						loadByWeek.set(ws, (loadByWeek.get(ws) ?? 0) + (toNum(a.icu_training_load) ?? 0));
+						const l = toNum(a.icu_training_load) ?? 0;
+						loadByWeek.set(ws, (loadByWeek.get(ws) ?? 0) + l);
+						if (!loadByWeekType.has(ws)) loadByWeekType.set(ws, new Map());
+						const m = loadByWeekType.get(ws)!;
+						m.set(String(a.type), (m.get(String(a.type)) ?? 0) + l);
 					}
 				}
+
+				// Completed load for a sport target's type within a week. A Ride target
+				// is credited with all cycling-type activities (Ride + VirtualRide);
+				// other sports match their exact type.
+				const completedForType = (ws: string, type: unknown): number => {
+					const m = loadByWeekType.get(ws);
+					if (!m) return 0;
+					if (isRide(type)) {
+						let s = 0;
+						for (const rt of RIDE_TYPES) s += m.get(rt) ?? 0;
+						return s;
+					}
+					return m.get(String(type)) ?? 0;
+				};
 
 				const classify = (done: number, target: number): string => {
 					if (target <= 0) return "unknown";
@@ -536,22 +565,29 @@ export class IntervalsMcpServer {
 
 				const result = [...byWeek.entries()]
 					.map(([week_start, evs]) => {
+						const started = week_start <= todayStr;
 						const sport_targets = evs
-							.map((e: any) => ({
-								type: e.type ?? null,
-								load_target: toNum(e.load_target),
-								duration_minutes:
-									toNum(e.time_target) !== null ? Math.round((toNum(e.time_target) as number) / 60) : null,
-								distance_m: toNum(e.distance_target),
-								notes: e.description ?? null,
-							}))
+							.map((e: any) => {
+								const lt = toNum(e.load_target);
+								const sportCompleted = started ? Math.round(completedForType(week_start, e.type)) : null;
+								return {
+									type: e.type ?? null,
+									load_target: lt,
+									duration_minutes:
+										toNum(e.time_target) !== null ? Math.round((toNum(e.time_target) as number) / 60) : null,
+									distance_m: toNum(e.distance_target),
+									notes: e.description ?? null,
+									completed_load: sportCompleted,
+									compliance:
+										started && lt !== null && lt > 0 ? classify(sportCompleted ?? 0, lt) : "unknown",
+								};
+							})
 							.sort((a, b) => String(a.type).localeCompare(String(b.type)));
 						const loadSum = sport_targets.reduce((s, t) => s + (t.load_target ?? 0), 0);
 						const load_target = loadSum > 0 ? loadSum : null;
 						// Preserve a phase label if an event name is not itself a sport type.
 						const phaseEvent = evs.find((e: any) => e.name && !SPORT_TYPES.has(e.name));
 						const phase_name = phaseEvent?.name ?? null;
-						const started = week_start <= todayStr;
 						const completed_load = started ? Math.round(loadByWeek.get(week_start) ?? 0) : null;
 						const compliance =
 							started && load_target !== null ? classify(completed_load ?? 0, load_target) : "unknown";

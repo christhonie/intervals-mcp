@@ -4,6 +4,32 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.6 — 2026-06-02
+
+Coaching-agent review follow-ups (BUG-03, BUG-04).
+
+### Fixed
+- **BUG-03 — Yoga/IMT activities mis-bucketed as rides.** `get_training_history`
+  (and `get_training_summary`, which had the same flaw) split rides from gym by
+  `type === "WeightTraining"`, so a Yoga/IMT activity fell into `rides` and
+  contaminated Ride TSS/volume. Bucketing is now `rides = {Ride, VirtualRide}`
+  and `gymSessions` = everything else (WeightTraining, Yoga, and any future
+  ancillary type). New `RIDE_TYPES`/`isRide()` helper is the single source of
+  truth for the split.
+
+### Added
+- **BUG-04 — per-sport compliance in `get_weekly_targets`.** Each entry in a
+  week's `sport_targets[]` now carries its own `completed_load` and `compliance`
+  (on_track/under/over/unknown), computed from completed activities of that sport
+  within the week. A Ride target is credited with both `Ride` and `VirtualRide`
+  activities; other sports match their exact type. Week-level
+  `load_target`/`completed_load`/`compliance` are unchanged.
+
+### Deploy
+- Image bumped to `0.1.6`; `k8s/deployment.yaml` updated (drives the ArgoCD sync).
+- No behavioural change to OAuth/transport — a reconnect is only needed if the
+  pod was replaced and claude.ai holds a stale session id (per 0.1.3 note).
+
 ## 0.1.5 — 2026-06-02 (branch: feature/redis-oauth-store)
 
 PR #1 review fixes (supersedes the 0.1.4 branch test image before merge).
