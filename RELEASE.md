@@ -22,10 +22,14 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
   rollout) — `HTTP 200`, tool call returned data. Test keys cleaned up.
 
 ### Deploy notes
-- This is a **template branch** — not merged to main, not deployed (ArgoCD
-  tracks main). To activate: build/push the 0.1.4 image, add `REDIS_URL` to the
-  `intervals-mcp-secrets` Secret (sourced from `redis/redis-credentials`), merge,
-  then reconnect the connector ONCE (the pre-existing token predates Redis).
+- Image `0.1.4` is built and pushed. `REDIS_URL` has been added to the
+  `intervals-mcp-secrets` Secret (sourced from `redis/redis-credentials`).
+- Validated live: deployed from this branch and confirmed an OAuth token survives
+  a real pod rollout (token issued, `rollout restart`, same token reused → 200).
+- On merge to `main`, ArgoCD deploys `0.1.4` (the manifest image tag is bumped in
+  this PR). After the first deploy that switches on Redis, reconnect the connector
+  ONCE — the pre-existing token predates the Redis store; subsequent rollouts need
+  no re-auth.
 - The MCP session transport remains in-memory by design; only the OAuth layer is
   persisted.
 
