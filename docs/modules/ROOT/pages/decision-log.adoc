@@ -1,0 +1,120 @@
+= Decision Log
+:description: Initial and subsequent requirement and design decisions for the Intervals.icu MCP server, with rationale.
+:keywords: decisions, adr, rationale, change log
+
+This page records significant requirement and design decisions, newest concerns first within each section.
+Each decision uses a lightweight ADR format.
+Update this page whenever a requirement or design choice changes.
+
+== Decisions
+
+[#adr-001]
+=== ADR-001: Build from scratch in TypeScript (do not fork hhopke)
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+The handover proposed evaluating `hhopke/intervals-icu-mcp` (Python/FastMCP, 50+ tools) as a fork base.
+However, claude.ai remote connectors require the server to be an OAuth 2.1 + PKCE authorization server — the connector UI has no bearer-token/header field.
+The community servers implement no auth on their HTTP transport.
+The reusable OAuth layer already exists, in TypeScript, in the operator's `fatsecret-mcp` and `hevy-mcp` deployments.
+
+Decision::
+Build a new TypeScript server following the `fatsecret-mcp` / `hevy-mcp` pattern, reusing the OAuth provider and HTTP transport almost verbatim.
+Use `hhopke/intervals-icu-mcp` as an endpoint and naming reference only.
+
+Consequences::
++
+* Positive: the hard, claude.ai-specific work (OAuth) is reused and proven; only ~16 purpose-built tools are needed, all carrying coaching logic we would have had to add to a fork anyway; one language across the operator's MCP fleet.
+* Negative: we forgo hhopke's breadth of generic tools (out of scope) and reimplement endpoint wrappers.
+
+Alternatives considered::
+Fork hhopke and add a Python OAuth layer — rejected: diverges from the proven TypeScript deployments and leaves the hardest work unbuilt in a second language.
+
+[#adr-002]
+=== ADR-002: Host on Kubernetes (not Cloudflare Workers)
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+Two hosting targets were considered: the existing k8s cluster (mcp namespace, ArgoCD/cert-manager/nginx) and Cloudflare Workers (native remote-MCP + OAuth support).
+
+Decision::
+Deploy to Kubernetes using the same pattern as `fatsecret-mcp` / `hevy-mcp`, at `https://icu-mcp.christhonie.co.za/mcp`.
+
+Consequences::
++
+* Positive: fully covered by the `remote-mcp-wrap` skill and two working precedents; no new deployment playbook.
+* Negative: more moving parts than a Worker; single-replica in-memory sessions reset on rollout (acceptable for single-user).
+
+Alternatives considered::
+Cloudflare Workers — arguably cleaner OAuth, but net-new territory with no existing Workers MCP and no skill coverage.
+
+[#adr-003]
+=== ADR-003: Hand-written API client (not generated)
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+The Intervals.icu OpenAPI spec (115 paths, 108 schemas) is available but uses Spring content-negotiation path suffixes (`{format}` / `{ext}`) that do not map cleanly onto codegen clients.
+The server touches only ~10 endpoints.
+
+Decision::
+Write a small typed client by hand over the global `fetch`, and commit `openapi-spec.json` as the field-name source of truth.
+
+Consequences::
++
+* Positive: no codegen friction; response projections expose exactly the coaching fields; descriptive error surfacing is straightforward.
+* Negative: endpoint additions are manual; types are hand-maintained rather than generated.
+
+Alternatives considered::
+Kubb (as in `hevy-mcp`) or `openapi-fetch` + generated types (as in `fatsecret-mcp`) — rejected due to the path-suffix friction for a small endpoint surface.
+
+[#adr-004]
+=== ADR-004: Added `list_plan_folders` helper tool
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+`apply_plan` requires a `folder_id` from the plan library, but no requirement tool exposed how to discover it.
+
+Decision::
+Add a small `list_plan_folders` read tool (`GET /folders`) so the assistant can discover folder IDs.
+
+Consequences::
+Positive: `apply_plan` is usable end-to-end. Negative: one tool beyond the original Phase 3 list (minor).
+
+== Requirement change log
+
+[cols="1,3",options="header"]
+|===
+| Date | Change
+| 2026-05-21 | Initial requirements: Phase 1 (core coaching tools) and Phase 2 (completed-activity writes), with `push_note` week-row notes as the motivating net-new capability.
+| 2026-06-02 | Phase 3 added — Plan Builder integration (`get_weekly_targets`, `push_weekly_target`, `apply_plan`) after Intervals.icu released the Annual Training Plan Builder and the public `apply-plan` endpoint. Decision to prioritise the custom MCP over IcuSync as the primary interface.
+|===
+
+== Validation status
+
+Read tools were validated live against athlete i579914 on 2026-06-02:
+
+* *`get_power_curves`* — RESOLVED. The endpoint works with `type` + date range; the spec's required `f1`/`f2`/`f3` are tolerated absent. Output is projected to standard durations (5s/1min/5min/20min/60min) with watts and W/kg.
+* *eFTP* — RESOLVED. Sourced from `wellness.sportInfo[].eftp`, not a top-level field.
+* *`get_events` `completed` flag* — RESOLVED. `paired_activity_id` is returned and populated, despite being absent from the documented `EventEx` schema.
+* PMC float noise rounded (CTL/ATL 1dp, ramp rate 2dp).
+
+Still open:
+
+* *Write tools* — validate in the Intervals.icu UI; not exercised live to avoid polluting the calendar. Confirm the event `start_date_local` format and the `push_note` week-row round-trip.
+* *Environment variable naming* — this build uses `INTERVALS_API_KEY` / `INTERVALS_ATHLETE_ID` (handover original), not hhopke's `_ICU_` infix, since we did not fork.

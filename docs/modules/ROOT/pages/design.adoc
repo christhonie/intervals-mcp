@@ -1,0 +1,72 @@
+= Design
+:description: Architecture, transport, authentication, API client, and deployment of the Intervals.icu MCP server.
+:keywords: design, architecture, oauth, streamable http, kubernetes, deployment
+
+This page describes how the server is built and deployed.
+For the decisions behind these choices, see xref:decision-log.adoc[Decision Log].
+
+== Architecture
+
+The server is both the OAuth 2.0 authorization server and the MCP resource server, in a single Express app, single replica.
+
+[source]
+----
+                  OAuth 2.1 + PKCE              HTTP Basic (API_KEY:key)
+claude.ai ─────► /authorize, /token ──────► /mcp ─────────► intervals.icu API
+                 (this server is the                │
+                  authorization server)             │
+                                          Deployment (1 replica, mcp namespace)
+                                          envFrom: intervals-mcp-secrets
+----
+
+== Technology stack
+
+* TypeScript, compiled with `tsc` to ESM (`dist/`). No bundler.
+* `@modelcontextprotocol/sdk` for the MCP server and OAuth router.
+* `express` for HTTP.
+* `zod` for tool input schemas.
+* Node 20+ (uses the global `fetch`).
+
+== Transport and entry points
+
+* `src/http-server.ts` — Streamable HTTP transport for the remote deployment. One `StreamableHTTPServerTransport` and one server instance per MCP session.
+* `src/index.ts` — stdio transport for local debugging (Claude Desktop, Cursor, MCP Inspector).
+
+Sessions are held in memory per pod, so a rollout invalidates existing sessions; clients reconnect with a fresh session. This is acceptable for a single-user deployment.
+
+== Authentication
+
+To claude.ai::
+OAuth 2.1 + PKCE. The claude.ai custom-connector UI exposes only OAuth Client ID / Secret (no header field), so the server must be an authorization server.
+`src/oauth-provider.ts` is a minimal single-client, "always approve" provider with in-memory codes/tokens.
+The MCP SDK's `mcpAuthRouter` exposes the RFC 8414 / RFC 9728 discovery endpoints that claude.ai walks.
+
+To Intervals.icu::
+HTTP Basic — username is the literal string `API_KEY`, password is the personal API key (`INTERVALS_API_KEY`).
+
+== API client
+
+`src/intervals-client.ts` is a small hand-written typed client over `fetch`.
+Every non-2xx response throws a descriptive `IntervalsApiError`, so the MCP SDK reports `isError: true` with detail instead of an opaque client error.
+
+The OpenAPI specification is committed as `openapi-spec.json` and is the source of truth for field and parameter names.
+Notable API facts encoded in the client:
+
+* `POST /events` requires the `upsertOnUid` query parameter (set to `false`).
+* Activity reads/writes use `/api/v1/activity/{id}` (not the athlete-scoped activity path, which rejects writes).
+* GET events / wellness / power-curves use the base paths (the spec's `{format}` / `{ext}` suffixes are Spring content-negotiation artefacts; the empty suffix returns JSON).
+* `apply-plan` body is `{folder_id, start_date_local}` (`ApplyPlanDTO`).
+* Weekly targets carry `load_target` / `time_target` / `distance_target` on the event.
+
+== Coaching logic
+
+`src/business.ts` holds the rules that make this server more than a generic API wrapper: Rule 1 (WeightTraining load), and the `overreachRisk` / `fatigueSpike` / `hrvTrendDown` flags.
+
+== Deployment
+
+* Container: multi-stage `node:20-alpine`, non-root uid 1001, port 8000, `/healthz` probe.
+* Kubernetes: `k8s/` holds `Deployment`, `Service`, `Ingress` (nginx + cert-manager `letsencrypt-prod` + external-dns) for `icu-mcp.christhonie.co.za`, in the `mcp` namespace.
+* Secret `intervals-mcp-secrets` is created out-of-band (never in git): `INTERVALS_API_KEY`, `INTERVALS_ATHLETE_ID`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`.
+* GitOps: `deploy/argocd/intervals-mcp.yml` is the ArgoCD Application, copied into the cluster GitOps repo at deploy time.
+
+The image tag in `k8s/deployment.yaml` is bumped on every release — it drives the ArgoCD sync.

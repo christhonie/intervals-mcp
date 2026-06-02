@@ -1,0 +1,31 @@
+# ArgoCD Application for the Intervals.icu MCP server.
+#
+# DEPLOY STEP: copy this file into the GitOps repo that ArgoCD watches
+#   ~/dev/idl-xnl-jhb-rc01/argocd/intervals-mcp.yml
+# then commit + push (use `git rebase --autostash origin/main` first — that repo
+# receives automated commits). ArgoCD runs on the management cluster, not on the
+# destination cluster. See the remote-mcp-wrap skill.
+#
+# Update repoURL/targetRevision below once the remote for this repo exists.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: intervals-mcp
+  namespace: argocd
+spec:
+  project: default
+  destination:
+    name: idl-xnl-jhb1-rc01
+    namespace: mcp
+  source:
+    path: k8s
+    repoURL: "git@github.com:christhonie/intervals-mcp.git"
+    targetRevision: main
+    directory:
+      exclude: "{secret.template.yaml}"
+  syncPolicy:
+    automated: { prune: true, selfHeal: true, allowEmpty: false }
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  revisionHistoryLimit: 3

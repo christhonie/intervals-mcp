@@ -1,0 +1,29 @@
+= Intervals.icu MCP Server Documentation
+:description: Custom Model Context Protocol server for the Intervals.icu training API, deployed as a claude.ai remote connector.
+:keywords: mcp, intervals.icu, claude, cycling, training, coaching
+
+A custom Model Context Protocol (MCP) server for the https://intervals.icu[Intervals.icu] training API.
+It is deployed as a remote claude.ai custom connector and replaces the commercial IcuSync managed MCP, adding capabilities IcuSync cannot provide.
+
+== Overview
+
+The server exposes coaching-focused tools — fitness/PMC metrics, training history, calendar workouts, wellness, week-row notes, and Plan Builder targets — with the coaching business logic embedded server-side.
+The calling assistant gets a complete, decision-ready result from a single tool call rather than having to orchestrate multiple requests or perform arithmetic itself.
+
+It runs in parallel with IcuSync during a burn-in period and replaces it incrementally once each tool is validated.
+
+== Getting Started
+
+For local development and the deployment runbook, see the project README at the repository root and the xref:design.adoc[Design] page.
+
+== Documentation
+
+* xref:requirements.adoc[Requirements] — objective, tool catalogue, business rules, and validation plan.
+* xref:design.adoc[Design] — architecture, transport, authentication, API client, and deployment.
+* xref:decision-log.adoc[Decision Log] — initial and subsequent requirement/design decisions with rationale.
+
+== Additional Resources
+
+* Intervals.icu API specification: `openapi-spec.json` (committed at the repository root).
+* Community reference: https://github.com/hhopke/intervals-icu-mcp[hhopke/intervals-icu-mcp].
+* Build playbook: the `remote-mcp-wrap` skill.

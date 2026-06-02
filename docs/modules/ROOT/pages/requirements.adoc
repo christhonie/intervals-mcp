@@ -1,0 +1,88 @@
+= Requirements
+:description: Functional requirements, tool catalogue, and business rules for the Intervals.icu MCP server.
+:keywords: requirements, tools, business rules, validation
+
+This page captures the requirements for the custom Intervals.icu MCP server, derived from the project handover (2026-05-21, revised 2026-06-02).
+
+== Objective
+
+Build a custom MCP server for the Intervals.icu REST API that runs as a claude.ai remote connector.
+It runs in parallel with the existing commercial bridge (IcuSync) and replaces it incrementally, starting with the tools actively used by the coaching workflow plus capabilities IcuSync cannot provide.
+
+== Deployment configuration
+
+[cols="1,2",options="header"]
+|===
+| Parameter | Value
+| Kubernetes namespace | `mcp`
+| Target endpoint | `https://icu-mcp.christhonie.co.za/mcp`
+| Upstream API key env var | `INTERVALS_API_KEY`
+| Athlete ID env var | `INTERVALS_ATHLETE_ID` = `i579914`
+| Upstream auth | HTTP Basic: username literal `API_KEY`, password = `INTERVALS_API_KEY`
+| Base URL | `https://intervals.icu`
+|===
+
+== Business rules
+
+These rules are embedded in the server so the calling agent never performs arithmetic or multi-step orchestration.
+
+Rule 1 — Load calculation (WeightTraining only)::
+When a caller provides `rpe` and `duration_minutes` but not `icu_training_load`, compute `icu_training_load = round(rpe × duration_minutes × 0.15)`.
+For all other activity types (`Ride`, `VirtualRide`, …) load is never auto-computed — Intervals.icu derives it from power and HR, and overwriting it corrupts TSS.
+
+Rule 2 — Tags::
+All create/update tools accept an optional `tags` string array, passed to the API without validation or transformation.
+
+Activity ID normalisation::
+All activity IDs are normalised to the `i`-prefixed form (e.g. `i150320999`).
+
+== Tool catalogue
+
+=== Phase 1 — core coaching workflow
+
+[cols="1,3",options="header"]
+|===
+| Tool | Purpose
+| `get_fitness_metrics` | CTL/ATL/TSB/ramp/eFTP series + summary with `overreachRisk` (TSB < −15) and `fatigueSpike` (ATL > CTL + 10) flags.
+| `get_training_history` | Recent activities split into `rides` and `gymSessions`, newest first; Strava stubs (null `moving_time`) filtered.
+| `get_activity_detail` | Full detail for one activity, non-null fields only.
+| `get_events` | Planned calendar for a range with a `category` filter (default `WORKOUT`) and a `completed` flag.
+| `get_wellness` | HRV, sleep, resting HR, weight, mood etc. with an `hrvTrendDown` flag (HRV declining 3+ consecutive days).
+| `push_workout` | Create a `WORKOUT` event; applies Rule 1.
+| `update_event` | Update a planned event; applies Rule 1, inferring type from the existing event when needed.
+| `push_note` | Create a `NOTE`, including week-row range notes via `for_week` + an exclusive `end_date_local`. Net-new vs IcuSync.
+| `get_power_curves` | Best power efforts over standard durations. _See open items._
+| `get_training_summary` | Aggregate volume/load: total/ride/gym hours and load, `avg_ctl`, `max_atl`, `min_tsb`.
+|===
+
+=== Phase 2 — completed-activity writes (not in IcuSync)
+
+[cols="1,3",options="header"]
+|===
+| Tool | Purpose
+| `update_activity` | Update a completed activity (set load/description after a gym check-in); applies Rule 1.
+| `create_activity` | Create a manual completed activity (`source: MANUAL`); applies Rule 1. Stretch goal.
+|===
+
+=== Phase 3 — Plan Builder integration (not in IcuSync)
+
+[cols="1,3",options="header"]
+|===
+| Tool | Purpose
+| `get_weekly_targets` | Read `category: TARGET` weekly load targets with a `current_week` flag and `compliance` (on_track/under/over/unknown) computed against completed load.
+| `push_weekly_target` | Write/update a weekly `TARGET` (load/hours); never sets `icu_training_load` or `moving_time`.
+| `list_plan_folders` | List plan-library folders to discover a `folder_id`. Added helper — see decision log.
+| `apply_plan` | Apply a saved plan folder to the calendar at a Monday start date.
+|===
+
+== Replacement rationale (vs IcuSync)
+
+IcuSync covers basic reads but lacks: Rule 1 load calculation, coaching readiness flags, event `category` filtering, week-row notes, writes to completed activities, and all Plan Builder operations.
+These gaps are the reason for the custom server.
+
+== Validation plan
+
+Before retiring each IcuSync tool, validate the replacement against it for the same date range / entity (compare CTL/ATL/TSB, activity lists, event lists, wellness fields, power values, and summary totals).
+Write tools are validated by creating a test entry, confirming it in the Intervals.icu UI, and deleting it.
+`push_note` has no IcuSync equivalent: confirm the week-row rendering and read back `end_date_local` + `for_week`.
+Once all Phase 1 tools are validated, remove IcuSync from the claude.ai connectors.

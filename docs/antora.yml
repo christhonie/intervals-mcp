@@ -1,0 +1,5 @@
+name: intervals-mcp
+title: Intervals.icu MCP Server
+version: '1.0'
+nav:
+- modules/ROOT/nav.adoc

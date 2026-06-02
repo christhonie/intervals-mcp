@@ -1,0 +1,22 @@
+# Antora build output
+build/
+
+# Node.js dependencies
+node_modules/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.temp
+
+input/
+output/
