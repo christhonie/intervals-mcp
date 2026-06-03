@@ -161,6 +161,85 @@ Consequences::
 
 Scope:: Persists only the OAuth layer (codes/tokens), not the MCP session transport. Activated per deployment by setting `REDIS_URL`; built as a reusable template for the sibling MCP servers (`fatsecret-mcp`, `hevy-mcp`).
 
+[#adr-008]
+=== ADR-008: `push_sport_targets` empty array clears a week
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+Phase 5 needed to remove all TARGET events from certain weeks (the 2026-05-04 null-load placeholder; the 2026-08-03 / 2026-08-10 UK-travel weeks) without recreating any. The original schema required `sport_targets` to have at least one entry (`.min(1)`), so there was no way to express "clear this week" through the tool.
+
+Decision::
+Relax the schema to allow an empty `sport_targets` array, meaning "delete all of the week's `category: TARGET` events and recreate none". NOTE events in the week are never touched (the delete step filters to `category: TARGET`). The non-empty behaviour (one TARGET per sport) is unchanged.
+
+Consequences::
++
+* Positive: one reusable primitive for travel / no-target weeks and stray-placeholder cleanup; idempotent.
+* Negative: an empty array is a slightly implicit way to express "clear" — mitigated by the tool description.
+
+Alternatives considered::
+A separate `clear_weekly_targets` tool — rejected as redundant surface area; the empty-array overload reuses the existing delete-then-recreate path.
+
+[#adr-009]
+=== ADR-009: WeightTraining load already feeds the PMC — no separate field, accept the display split
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+Phase 6 reported that manually-written `icu_training_load` on no-HR `WeightTraining` activities was not counted in fitness, and hypothesised a separate load field / flag was needed, with a backfill of 11 activities. Investigation (OpenAPI `Activity` schema + live probes) found no separate manual-load field or flag; `icu_training_load` is the sole field, it persists across edits, and all 11 historical activities already carried it. A PMC reconstruction from the ATL recurrence showed implied daily load tracks the activity sum *including* gym — i.e. gym load already feeds CTL/ATL at full weight.
+
+Decision::
+Treat Phase 6 as resolved with no code change and no backfill. The activity-details screen and the PMC are correct. The remaining `0` on the calendar day tile and the Plan Builder compliance ring come from a separate Intervals computation path (HR/power-derived load, `0` without HR) that does not honour the manual field; this display split is accepted (Path C). Coaching reads true loads from `icu_training_load` (PMC, and `get_weekly_targets` per-sport `completed_load`), not the UI display.
+
+Consequences::
++
+* Positive: avoids writing speculative/redundant data; coaching accuracy is already correct.
+* Negative: a cosmetic UI discrepancy remains; resolvable only by wearing an HR strap (Path A) so Intervals computes a displayable hrTSS.
+
+[#adr-010]
+=== ADR-010: `update_sport_settings` — athlete sport-settings write with preview→confirm
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+Phase 7 required writing FTP / LTHR / max HR / resting HR / power & HR zones (the immediate need: revise the Ride HR zones for a high-HR phenotype). The handover's stated endpoint `PUT /athlete/{id}/settings/{sport}` does not exist.
+
+Decision::
+Add `update_sport_settings`. Sport-level fields are written to `PUT /api/v1/athlete/{id}/sport-settings/{id}`, where the record is located by its `types` list; `resting_hr` is athlete-level (`icu_resting_hr`) and written via `PUT /api/v1/athlete/{id}`. Both are partial merges (verified). The tool is **preview-by-default**: without `confirm: true` it returns a current→proposed diff and writes nothing. Validation: zone arrays must be 7 strictly-ascending values; HR-zone top must not exceed `max_hr`.
+
+Consequences::
++
+* Positive: programmatic zone/threshold changes with a safety guard; only supplied fields change.
+* Negative: power zones are stored as percentages of FTP on this athlete's record (contradicting the handover's "watts" note) — callers must match the record's existing array format when changing power zones.
+
+[#adr-011]
+=== ADR-011: `update_activity_type` — fitness-contribution config via `icu_type_settings`
+
+:adr-status: Accepted
+:adr-date: 2026-06-02
+
+Status:: Accepted
+
+Context::
+Phase 8 asked to expose the per-activity-type "fitness contribution" so WeightTraining/Yoga can be tuned. The config is the athlete-level `icu_type_settings` array (`{type, ctlFactor, atlFactor}`, 1.0 = 100%), written via `PUT /api/v1/athlete/{id}` — not the `athlete-types` endpoint the handover guessed.
+
+Decision::
+Add `update_activity_type(type, ctl_factor?, atl_factor?, confirm?)`, preview-by-default, that reads the full `icu_type_settings` array, merges the entry for the type, and writes the whole array back (other types preserved). Expose the real fields (`ctlFactor`/`atlFactor`) rather than a lossy percentage abstraction.
+
+Consequences::
++
+* Positive: the config is controllable as requested; merge preserves other type overrides.
+* Negative: these factors scale a type's `icu_training_load` into the PMC; they do **not** drive the calendar-tile / compliance-ring computed load (see ADR-009). So this is not a fix for that display split — it is exposed for completeness and PMC tuning.
+
 == Requirement change log
 
 [cols="1,3",options="header"]
@@ -168,6 +247,7 @@ Scope:: Persists only the OAuth layer (codes/tokens), not the MCP session transp
 | Date | Change
 | 2026-05-21 | Initial requirements: Phase 1 (core coaching tools) and Phase 2 (completed-activity writes), with `push_note` week-row notes as the motivating net-new capability.
 | 2026-06-02 | Phase 3 added — Plan Builder integration (`get_weekly_targets`, `push_weekly_target`, `apply_plan`) after Intervals.icu released the Annual Training Plan Builder and the public `apply-plan` endpoint. Decision to prioritise the custom MCP over IcuSync as the primary interface.
+| 2026-06-02 | Phases 4–8 (see ADR-006, ADR-008…011): per-sport targets; clear-a-week; CR-01 note read-projection (`color`/`end_date_local`/`for_week`); BUG-03 ride/gym bucketing; BUG-04 per-sport compliance; `update_sport_settings`; `update_activity_type`. Phase 6 closed as no-op (gym load already feeds the PMC). Full per-version detail in `RELEASE.md`; full narrative in the Outline handover doc.
 |===
 
 == Validation status
