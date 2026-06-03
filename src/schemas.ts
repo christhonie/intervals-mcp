@@ -101,6 +101,7 @@ export const UpdateActivityInput = {
 	icu_training_load: z.number().int().optional(),
 	tags: z.array(z.string()).optional(),
 	type: z.string().optional(),
+	kg_lifted: z.number().optional().describe("Total weight lifted (kg) for a strength session — Intervals' Weight Lifted field."),
 	rpe: z.number().optional().describe("RPE — used with duration_minutes for WeightTraining load (Rule 1)."),
 	duration_minutes: z.number().optional(),
 };
@@ -116,6 +117,7 @@ export const CreateActivityInput = {
 	paired_event_id: z.number().int().optional().describe("Link to a planned event."),
 	tags: z.array(z.string()).optional(),
 	indoor: z.boolean().optional(),
+	kg_lifted: z.number().optional().describe("Total weight lifted (kg) for a strength session — Intervals' Weight Lifted field."),
 };
 
 export const GetWeeklyTargetsInput = {

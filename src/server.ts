@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.10";
+const VERSION = "0.1.11";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -458,7 +458,7 @@ export class IntervalsMcpServer {
 			},
 			async (args) => {
 				const body: Record<string, unknown> = {};
-				for (const k of ["name", "description", "icu_rpe", "icu_training_load", "tags", "type"] as const) {
+				for (const k of ["name", "description", "icu_rpe", "icu_training_load", "tags", "type", "kg_lifted"] as const) {
 					if ((args as any)[k] !== undefined) body[k] = (args as any)[k];
 				}
 				applyRule1(body, {
@@ -491,6 +491,7 @@ export class IntervalsMcpServer {
 				if (args.paired_event_id !== undefined) body.paired_event_id = args.paired_event_id;
 				if (args.tags !== undefined) body.tags = args.tags;
 				if (args.indoor !== undefined) body.indoor = args.indoor;
+				if (args.kg_lifted !== undefined) body.kg_lifted = args.kg_lifted;
 				applyRule1(body, { type: args.type, rpe: args.rpe, duration_minutes: args.duration_minutes });
 				return text(await this.client.createManualActivity(body));
 			},

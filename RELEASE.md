@@ -4,6 +4,32 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.11 — 2026-06-03
+
+Weight Lifted field write support + Phase 8 outcome correction.
+
+### Added
+- **`kg_lifted` write support** on `update_activity` and `create_activity` — the
+  total weight lifted (kg) for a strength session. Mirrors Intervals.icu's new
+  "Weight Lifted" field (announced 2026-06-03; the `kg_lifted` API field already
+  existed and `get_training_history` already read it). Verified live: create with
+  `kg_lifted` persists (and Rule 1 still computes load); update changes it.
+
+### Correction (supersedes the 0.1.10 caveat)
+- The 0.1.10 note predicted setting WeightTraining fitness contribution to 100%
+  would be a **no-op for the calendar tile / compliance ring**. **That was wrong.**
+  Applied live (`update_activity_type` WeightTraining `ctlFactor/atlFactor = 1`,
+  Yoga `= 0`) and the athlete confirmed: the gym session's calendar tile now shows
+  `Load 41` (no brackets), and the Plan Builder weekly compliance ring now adds to
+  the weekly total and %. Intervals auto-re-analysed historical sessions. So the
+  Activity-Types fitness contribution **is** the lever for that display path.
+  ADR-009/ADR-011 updated accordingly.
+
+### Other (operational, this date)
+- Ride HR-zone revision `[100,120,150,163,174,181,190]` applied and confirmed.
+- IcuSync **demoted to secondary/backup** (not retired) while the custom MCP
+  burns in — see ADR-012.
+
 ## 0.1.10 — 2026-06-02
 
 Phase 8 — expose activity-type fitness-contribution config.

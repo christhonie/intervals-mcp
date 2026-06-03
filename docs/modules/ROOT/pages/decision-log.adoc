@@ -200,7 +200,10 @@ Treat Phase 6 as resolved with no code change and no backfill. The activity-deta
 Consequences::
 +
 * Positive: avoids writing speculative/redundant data; coaching accuracy is already correct.
-* Negative: a cosmetic UI discrepancy remains; resolvable only by wearing an HR strap (Path A) so Intervals computes a displayable hrTSS.
+* Negative: a calendar-tile / compliance-ring display discrepancy remained at the time of writing (since resolved — see Update).
+
+Update (2026-06-03)::
+The display split was **resolved**, not merely accepted. Setting the WeightTraining Activity-Types fitness contribution to 100% (`ctlFactor`/`atlFactor = 1`, via the ADR-011 tool) fixed it: the athlete confirmed the gym session's calendar tile now shows `Load 41` (no brackets) and the Plan Builder weekly compliance ring adds to the weekly total and %. Intervals auto-re-analysed historical sessions. The earlier conclusion that the contribution factor "does not drive" that display path was wrong — it does. Path A (HR strap) is therefore not required.
 
 [#adr-010]
 === ADR-010: `update_sport_settings` — athlete sport-settings write with preview→confirm
@@ -238,7 +241,26 @@ Add `update_activity_type(type, ctl_factor?, atl_factor?, confirm?)`, preview-by
 Consequences::
 +
 * Positive: the config is controllable as requested; merge preserves other type overrides.
-* Negative: these factors scale a type's `icu_training_load` into the PMC; they do **not** drive the calendar-tile / compliance-ring computed load (see ADR-009). So this is not a fix for that display split — it is exposed for completeness and PMC tuning.
+* Outcome (2026-06-03): setting WeightTraining to `ctlFactor/atlFactor = 1` (100%) **fixed the calendar-tile and compliance-ring display** (athlete-confirmed; Intervals auto-re-analysed history). Yoga set to `0` (it carries null load). This corrects the earlier expectation that the factor would not affect that display path (see ADR-009 Update).
+
+[#adr-012]
+=== ADR-012: Demote IcuSync to secondary/backup (do not retire yet)
+
+:adr-status: Accepted
+:adr-date: 2026-06-03
+
+Status:: Accepted
+
+Context::
+The custom MCP now covers the coaching workflow (20 tools, Phases 1–8) and is the primary interface. The original plan was to retire IcuSync once validated. In practice the custom MCP is still young and bugs are still being found.
+
+Decision::
+Keep IcuSync connected but **demote it to a secondary/backup tool** rather than retiring it. The custom MCP is primary; IcuSync remains available as a fallback while the custom server burns in and bugs are weeded out. Revisit retirement once the custom MCP has run cleanly in primary use for a sustained period.
+
+Consequences::
++
+* Positive: a safety net remains if a custom-MCP bug blocks a coaching task; no rush to retire.
+* Negative: two overlapping connectors coexist; the coaching agent must treat the custom MCP as authoritative and IcuSync as backup to avoid divergence.
 
 == Requirement change log
 
@@ -248,6 +270,7 @@ Consequences::
 | 2026-05-21 | Initial requirements: Phase 1 (core coaching tools) and Phase 2 (completed-activity writes), with `push_note` week-row notes as the motivating net-new capability.
 | 2026-06-02 | Phase 3 added — Plan Builder integration (`get_weekly_targets`, `push_weekly_target`, `apply_plan`) after Intervals.icu released the Annual Training Plan Builder and the public `apply-plan` endpoint. Decision to prioritise the custom MCP over IcuSync as the primary interface.
 | 2026-06-02 | Phases 4–8 (see ADR-006, ADR-008…011): per-sport targets; clear-a-week; CR-01 note read-projection (`color`/`end_date_local`/`for_week`); BUG-03 ride/gym bucketing; BUG-04 per-sport compliance; `update_sport_settings`; `update_activity_type`. Phase 6 closed as no-op (gym load already feeds the PMC). Full per-version detail in `RELEASE.md`; full narrative in the Outline handover doc.
+| 2026-06-03 | `kg_lifted` write support on `update_activity`/`create_activity` (Intervals' new Weight Lifted field). WeightTraining fitness contribution set to 100% — confirmed to fix the calendar tile + compliance ring (ADR-009/011 corrected). Ride HR zones revised. IcuSync demoted to secondary/backup (ADR-012). The 2026-06-03 Intervals news was otherwise UI/integration-only (no API impact).
 |===
 
 == Validation status
