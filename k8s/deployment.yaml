@@ -7,6 +7,9 @@ metadata:
     app.kubernetes.io/name: intervals-mcp
 spec:
   replicas: 1
+  # Keep the active ReplicaSet plus 3 historic ones for rollback (default is 10,
+  # which leaves a long trail of old ReplicaSets after frequent image bumps).
+  revisionHistoryLimit: 3
   strategy:
     type: RollingUpdate
     rollingUpdate:
