@@ -56,6 +56,12 @@ export const UpdateEventInput = {
 		.string()
 		.optional()
 		.describe("Event colour as hex, with or without a leading # (e.g. D85A30 or #D85A30). A leading # is stripped (PLAN events require bare hex). Valid on all event categories. Omitted = colour left unchanged."),
+	start_date_local: isoDate()
+		.optional()
+		.describe("New start date (ISO). Accepted for WORKOUT/NOTE/PLAN events; TARGET events reject date changes on PUT (use push_weekly_target / push_sport_targets)."),
+	end_date_local: isoDate()
+		.optional()
+		.describe("New exclusive end date (ISO) — the day AFTER the last visible day (e.g. shortening a PLAN phase bar). Accepted for WORKOUT/NOTE/PLAN; TARGET events reject date changes on PUT."),
 	rpe: z.number().optional().describe("RPE — used with duration_minutes for WeightTraining load (Rule 1)."),
 	duration_minutes: z.number().optional(),
 };

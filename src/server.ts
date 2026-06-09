@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.12";
+const VERSION = "0.1.13";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -300,7 +300,7 @@ export class IntervalsMcpServer {
 			"update_event",
 			{
 				description:
-					"Update a planned WORKOUT, NOTE or PLAN event in place (PUT). Applies Rule 1 when rpe + duration_minutes are given without an explicit load; the type is inferred from the existing event if not supplied. Accepts an optional color (hex, with or without #; a leading # is stripped — PLAN bars require bare hex). Only supplied fields are changed. NOTE: TARGET events reject PUT — use push_weekly_target or push_sport_targets (delete-then-recreate) to change a TARGET.",
+					"Update a planned WORKOUT, NOTE or PLAN event in place (PUT). Applies Rule 1 when rpe + duration_minutes are given without an explicit load; the type is inferred from the existing event if not supplied. Accepts an optional color (hex, with or without #; a leading # is stripped — PLAN bars require bare hex) and optional start_date_local / end_date_local to move or resize an event (e.g. shorten a PLAN phase bar). Only supplied fields are changed. NOTE: TARGET events reject PUT (including date changes) — use push_weekly_target or push_sport_targets (delete-then-recreate) to change a TARGET.",
 				inputSchema: schemas.UpdateEventInput,
 				annotations: WRITE_IDEM,
 			},
@@ -311,6 +311,11 @@ export class IntervalsMcpServer {
 				}
 				// Colour: send bare hex (PLAN convention; valid on all categories).
 				if (args.color !== undefined) body.color = stripHash(args.color);
+				// Dates: full ISO datetime required on POST/PUT (toDateTime appends
+				// midnight). PLAN/WORKOUT/NOTE accept date changes on PUT; TARGET
+				// rejects them ("Cannot change TARGET date") — see push_weekly_target.
+				if (args.start_date_local !== undefined) body.start_date_local = toDateTime(args.start_date_local);
+				if (args.end_date_local !== undefined) body.end_date_local = toDateTime(args.end_date_local);
 				if (args.rpe !== undefined && args.duration_minutes !== undefined && args.icu_training_load === undefined) {
 					let type = args.type;
 					if (!type) {
