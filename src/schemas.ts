@@ -52,6 +52,10 @@ export const UpdateEventInput = {
 	moving_time: z.number().int().optional(),
 	tags: z.array(z.string()).optional(),
 	type: z.string().optional(),
+	color: z
+		.string()
+		.optional()
+		.describe("Event colour as hex, with or without a leading # (e.g. D85A30 or #D85A30). A leading # is stripped (PLAN events require bare hex). Valid on all event categories. Omitted = colour left unchanged."),
 	rpe: z.number().optional().describe("RPE — used with duration_minutes for WeightTraining load (Rule 1)."),
 	duration_minutes: z.number().optional(),
 };
@@ -199,6 +203,22 @@ const factor = () =>
 		.min(0)
 		.max(1)
 		.describe("Contribution multiplier 0–1 (1.0 = 100%). Stored in the athlete's icu_type_settings.");
+
+export const PushPlanBlockInput = {
+	name: z.string().describe('Phase label shown on the Plan Builder bar, e.g. "Phase 3 — Strength focus".'),
+	start_date: isoDate().describe("First day of the phase (ISO)."),
+	end_date: isoDate().describe("Exclusive end boundary: the day AFTER the last visible day of the phase."),
+	description: z.string().optional().describe("Short one-line summary shown when the bar is clicked."),
+	color: z
+		.string()
+		.optional()
+		.describe("Bar colour as hex, with or without a leading # (e.g. D85A30 or #D85A30). A leading # is stripped. Default 4caf50 (green)."),
+	type: z
+		.string()
+		.optional()
+		.describe("Activity type. Required by the API for PLAN events but cosmetic. Default Ride."),
+	tags: z.array(z.string()).optional(),
+};
 
 export const UpdateActivityTypeInput = {
 	type: z

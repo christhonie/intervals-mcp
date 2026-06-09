@@ -14,7 +14,7 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.11";
+const VERSION = "0.1.12";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -75,6 +75,15 @@ function wellnessDate(r: any): string {
 	return r?.id ?? r?.date ?? "";
 }
 
+/**
+ * Strip a leading `#` from a hex colour. PLAN events require bare hex
+ * (e.g. "4caf50", not "#4caf50"); other categories tolerate both. We always
+ * send the bare form so a single convention applies everywhere.
+ */
+function stripHash(color: string): string {
+	return color.trim().replace(/^#/, "");
+}
+
 const RO = { readOnlyHint: true, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, idempotentHint: false } as const;
 const WRITE_IDEM = { readOnlyHint: false, idempotentHint: true } as const;
@@ -98,6 +107,7 @@ export class IntervalsMcpServer {
 		this.registerPhase1();
 		this.registerPhase2();
 		this.registerPhase3();
+		this.registerPhase9();
 	}
 
 	// ── Phase 1 ──
@@ -290,7 +300,7 @@ export class IntervalsMcpServer {
 			"update_event",
 			{
 				description:
-					"Update a planned workout event. Applies Rule 1 when rpe + duration_minutes are given without an explicit load; the type is inferred from the existing event if not supplied.",
+					"Update a planned WORKOUT, NOTE or PLAN event in place (PUT). Applies Rule 1 when rpe + duration_minutes are given without an explicit load; the type is inferred from the existing event if not supplied. Accepts an optional color (hex, with or without #; a leading # is stripped — PLAN bars require bare hex). Only supplied fields are changed. NOTE: TARGET events reject PUT — use push_weekly_target or push_sport_targets (delete-then-recreate) to change a TARGET.",
 				inputSchema: schemas.UpdateEventInput,
 				annotations: WRITE_IDEM,
 			},
@@ -299,6 +309,8 @@ export class IntervalsMcpServer {
 				for (const k of ["name", "description", "icu_training_load", "moving_time", "tags", "type"] as const) {
 					if ((args as any)[k] !== undefined) body[k] = (args as any)[k];
 				}
+				// Colour: send bare hex (PLAN convention; valid on all categories).
+				if (args.color !== undefined) body.color = stripHash(args.color);
 				if (args.rpe !== undefined && args.duration_minutes !== undefined && args.icu_training_load === undefined) {
 					let type = args.type;
 					if (!type) {
@@ -868,6 +880,36 @@ export class IntervalsMcpServer {
 				const updated = await this.client.updateAthlete({ icu_type_settings: merged });
 				const written = (updated?.icu_type_settings ?? merged).find((e: any) => e.type === args.type);
 				return text({ confirmed: true, type: args.type, written, icu_type_settings: updated?.icu_type_settings ?? merged });
+			},
+		);
+	}
+
+	// ── Phase 9 — PLAN phase bars ──
+
+	private registerPhase9(): void {
+		this.server.registerTool(
+			"push_plan_block",
+			{
+				description:
+					"Create a PLAN event — a coloured phase bar that spans the Intervals.icu Plan page above the weekly TARGET rows (e.g. \"Phase 3 — Strength focus\"). The Plan Builder generates these internally; this tool creates them directly. start_date/end_date span the bar (end exclusive: the day AFTER the last visible day). color is bare hex (a leading # is stripped). type is required by the API but cosmetic for PLAN events (default Ride). No training load, no Rule 1, no for_week. Low-risk: PLAN events are freely editable/deletable afterwards.",
+				inputSchema: schemas.PushPlanBlockInput,
+				annotations: WRITE,
+			},
+			async (args) => {
+				const body: Record<string, unknown> = {
+					category: "PLAN",
+					// The API rejects PLAN/TARGET creation without a type (HTTP 422).
+					// The value is cosmetic for PLAN events.
+					type: args.type ?? "Ride",
+					name: args.name,
+					start_date_local: toDateTime(args.start_date),
+					end_date_local: toDateTime(args.end_date),
+					// PLAN bars require bare hex (no #). Default green.
+					color: stripHash(args.color ?? "4caf50"),
+				};
+				if (args.description !== undefined) body.description = args.description;
+				if (args.tags !== undefined) body.tags = args.tags;
+				return text(await this.client.createEvent(body));
 			},
 		);
 	}
