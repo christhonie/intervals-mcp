@@ -81,7 +81,7 @@ function wellnessDate(r: any): string {
  * send the bare form so a single convention applies everywhere.
  */
 function stripHash(color: string): string {
-	return color.replace(/^#/, "");
+	return color.trim().replace(/^#/, "");
 }
 
 const RO = { readOnlyHint: true, idempotentHint: true } as const;
