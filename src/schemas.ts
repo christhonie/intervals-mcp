@@ -5,7 +5,12 @@
 
 import { z } from "zod";
 
-const isoDate = () => z.string().regex(/^\d{4}-\d{2}-\d{2}/, "Expected ISO date YYYY-MM-DD");
+// Anchored: a bare date (YYYY-MM-DD) or a full ISO datetime (YYYY-MM-DDTHH:MM:SS)
+// — the two forms toDateTime emits. Anchoring rejects junk suffixes such as
+// "2026-06-09foo" or "2026-06-09 10:00" that would otherwise reach the API as a
+// confusing 422.
+const isoDate = () =>
+	z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$/, "Expected ISO date YYYY-MM-DD or datetime YYYY-MM-DDTHH:MM:SS");
 
 export const GetFitnessMetricsInput = {
 	oldest: isoDate().optional().describe("Start date (ISO). Default: 42 days ago."),
