@@ -300,7 +300,7 @@ export class IntervalsMcpServer {
 			"update_event",
 			{
 				description:
-					"Update a planned event (WORKOUT, NOTE, PLAN or TARGET). Applies Rule 1 when rpe + duration_minutes are given without an explicit load; the type is inferred from the existing event if not supplied. Accepts an optional color (hex, with or without #; a leading # is stripped — PLAN bars require bare hex). Only supplied fields are changed.",
+					"Update a planned WORKOUT, NOTE or PLAN event in place (PUT). Applies Rule 1 when rpe + duration_minutes are given without an explicit load; the type is inferred from the existing event if not supplied. Accepts an optional color (hex, with or without #; a leading # is stripped — PLAN bars require bare hex). Only supplied fields are changed. NOTE: TARGET events reject PUT — use push_weekly_target or push_sport_targets (delete-then-recreate) to change a TARGET.",
 				inputSchema: schemas.UpdateEventInput,
 				annotations: WRITE_IDEM,
 			},
