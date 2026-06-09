@@ -5,7 +5,12 @@
 
 import { z } from "zod";
 
-const isoDate = () => z.string().regex(/^\d{4}-\d{2}-\d{2}/, "Expected ISO date YYYY-MM-DD");
+// Anchored: a bare date (YYYY-MM-DD) or a full ISO datetime (YYYY-MM-DDTHH:MM:SS)
+// — the two forms toDateTime emits. Anchoring rejects junk suffixes such as
+// "2026-06-09foo" or "2026-06-09 10:00" that would otherwise reach the API as a
+// confusing 422.
+const isoDate = () =>
+	z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?$/, "Expected ISO date YYYY-MM-DD or datetime YYYY-MM-DDTHH:MM:SS");
 
 export const GetFitnessMetricsInput = {
 	oldest: isoDate().optional().describe("Start date (ISO). Default: 42 days ago."),
@@ -56,6 +61,12 @@ export const UpdateEventInput = {
 		.string()
 		.optional()
 		.describe("Event colour as hex, with or without a leading # (e.g. D85A30 or #D85A30). A leading # is stripped (PLAN events require bare hex). Valid on all event categories. Omitted = colour left unchanged."),
+	start_date_local: isoDate()
+		.optional()
+		.describe("New start date (ISO). Accepted for WORKOUT/NOTE/PLAN events; TARGET events reject date changes on PUT (use push_weekly_target / push_sport_targets)."),
+	end_date_local: isoDate()
+		.optional()
+		.describe("New exclusive end date (ISO) — the day AFTER the last visible day (e.g. shortening a PLAN phase bar). Accepted for WORKOUT/NOTE/PLAN; TARGET events reject date changes on PUT."),
 	rpe: z.number().optional().describe("RPE — used with duration_minutes for WeightTraining load (Rule 1)."),
 	duration_minutes: z.number().optional(),
 };

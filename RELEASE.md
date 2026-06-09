@@ -4,6 +4,23 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.13 — 2026-06-09
+
+Phase 9 follow-up — date editing on `update_event` (unblocks the Phase 1
+end-date fix).
+
+### Added
+- **`update_event` accepts optional `start_date_local` / `end_date_local`** —
+  move or resize a planned WORKOUT/NOTE/PLAN event in place (e.g. shorten a
+  PLAN phase bar to a new exclusive end date). Dates are normalised to a full
+  ISO datetime (`toDateTime`). Sent only when supplied.
+- The 0.1.12 handover assumed dates were already editable via `update_event`;
+  they were not (the schema had no date fields), and there is no `delete_event`
+  tool, so the Phase 1 PLAN-bar end-date correction (event 113776609 →
+  2026-07-28) could not be made. This adds the missing parameters. PLAN/NOTE/
+  WORKOUT accept date changes on PUT; **TARGET still rejects them** ("Cannot
+  change TARGET date") — use `push_weekly_target` / `push_sport_targets`.
+
 ## 0.1.12 — 2026-06-09
 
 Phase 9 — PLAN phase-bar creation + `color` on `update_event`.
