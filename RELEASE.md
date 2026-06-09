@@ -4,6 +4,44 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.12 — 2026-06-09
+
+Phase 9 — PLAN phase-bar creation + `color` on `update_event`.
+
+### Added
+- **`push_plan_block`** — create a `category: PLAN` event (the coloured phase
+  bars that span the Plan page above the weekly TARGET rows). The Plan Builder
+  only generates these internally; this tool creates them directly via
+  `POST /events`. `start_date`/`end_date` span the bar (end exclusive);
+  `color` is bare hex (a leading `#` is stripped — PLAN bars reject `#rrggbb`),
+  default `4caf50`; `type` is required by the API but cosmetic for PLAN events
+  (default `Ride`). No Rule 1, no load fields, no `for_week`. Low-risk write
+  (no confirm guard) — PLAN events are freely editable/deletable.
+
+### Changed
+- **`update_event` accepts an optional `color`** (hex, with or without `#`; the
+  `#` is stripped before sending — bare hex is the PLAN convention and is valid
+  on all event categories). Sent only when supplied, so an omitted `color` never
+  clears an existing colour.
+
+### Verification (Task 4 — no code change)
+- `get_events(category=PLAN)` already works: `category` is a pass-through to the
+  API and the event projection (since CR-01, 0.1.8) already returns `color`,
+  `end_date_local`, and `for_week`. PLAN events come through on that same path.
+
+### Outstanding (operational — not in this code change)
+- **Deploy:** build/push image `0.1.12`, bump `k8s/deployment.yaml` image tag
+  (drives ArgoCD), reconnect the connector after rollout.
+- **Live verification of `push_plan_block`** (create a far-future test PLAN
+  event, confirm the coloured bar renders, read back via `get_events`, delete).
+- **Task 3 (data):** create the Phase 3 PLAN bar — `Phase 3 — Strength focus`,
+  2026-10-12 → 2026-12-08 (excl.), colour `D85A30`, tag `phase-3`.
+- **Phase 1 end-date fix:** shorten PLAN event 113776609 to end 2026-07-28
+  (departure date, exclusive) via `update_event` (now that `color`/PUT path is
+  in place).
+  These three require the deployed 0.1.12 server (or a direct API call) and
+  write to the live athlete calendar — held pending operator go-ahead.
+
 ## 0.1.11 — 2026-06-03
 
 Weight Lifted field write support + Phase 8 outcome correction.
