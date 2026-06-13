@@ -12,7 +12,7 @@ import { IntervalsClient, IntervalsApiError, normalizeActivityId } from "./inter
 import type { IntervalsConfig } from "./config.js";
 import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
-import { StreamService } from "./streams.js";
+import { StreamService, parseRef } from "./streams.js";
 import {
 	computeStats,
 	epochStats,
@@ -987,6 +987,25 @@ export class IntervalsMcpServer {
 	// ── Phase 11 — Signal Processing Toolkit (reducers) ──
 
 	/**
+	 * Combine a stream reference with an optional smooth_window_seconds. Smoothing
+	 * is shorthand for a `~mean:N` op on the SOURCE, so combining it with a
+	 * reference that already carries ops is ambiguous — it would append a second
+	 * op at the end of the chain (double-smoothing, and on the derived stream
+	 * rather than the source). That combination is rejected; fold the smoothing
+	 * into the handle instead. A plain name with smoothing becomes `name~mean:N`.
+	 */
+	private smoothedRef(ref: string, smoothWindowSeconds: number | undefined): string {
+		if (!smoothWindowSeconds) return ref;
+		if (parseRef(ref).ops.length > 0) {
+			throw new Error(
+				`Pass smooth_window_seconds OR a derived handle with ops, not both — "${ref}" already has ops. ` +
+					`Fold the smoothing into the handle (e.g. "${ref}~mean:${smoothWindowSeconds}") if that is intended.`,
+			);
+		}
+		return `${ref}~mean:${smoothWindowSeconds}`;
+	}
+
+	/**
 	 * Resolve a stream reference (raw name or derived handle), optionally append
 	 * a trailing-mean smoothing op, and slice to [start, end). Returns the
 	 * windowed values plus the absolute start offset (added back onto event secs)
@@ -999,7 +1018,7 @@ export class IntervalsMcpServer {
 		startSec: number | undefined,
 		endSec: number | undefined,
 	): Promise<{ values: Series; start: number; end: number; handle: string }> {
-		const fullRef = smoothWindowSeconds ? `${ref}~mean:${smoothWindowSeconds}` : ref;
+		const fullRef = this.smoothedRef(ref, smoothWindowSeconds);
 		const resolved = await this.streams.resolve(activityId, fullRef);
 		if (resolved.values == null) {
 			throw new Error(`Stream "${ref}" not found on activity ${normalizeActivityId(activityId)}.`);
