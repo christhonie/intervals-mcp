@@ -4,6 +4,29 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.14 — 2026-06-13
+
+Phase 10 — raw activity streams (`get_activity_streams`). Unblocks the SmO₂ +
+DFA α1 baselining programme, which needs per-second resolution the aggregate
+tools cannot provide.
+
+### Added
+- **`get_activity_streams`** — return the raw per-second time-series for one or
+  more named streams (e.g. `smo2`, `heartrate`, `watts`, `dfa_a1`, `RMSSD`)
+  from a completed activity. Output is an envelope `{ activity_id,
+  duration_seconds, sample_rate_hz: 1, streams: { <name>: number[] } }`; sample
+  arrays are positionally aligned (index 0 = second 0). Requested streams the
+  activity lacks are listed under `missing_streams`. Read-only, no confirm
+  guard. Stream names are passed through case-sensitive (`RMSSD` is uppercase).
+
+### Notes
+- The handover spec described the endpoint as
+  `GET /activity/{id}/streams?streams=…` returning an object keyed by stream
+  name. The committed OpenAPI spec is authoritative (ADR-003): the query param
+  is **`types`** (not `streams`) and the response is an **array** of
+  `ActivityStream` `{type, data, …}` objects. The tool calls with `types` and
+  reshapes the array into the keyed envelope. See **ADR-013**.
+
 ## 0.1.13 — 2026-06-09
 
 Phase 9 follow-up — date editing on `update_event` (unblocks the Phase 1
