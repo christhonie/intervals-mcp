@@ -3,7 +3,8 @@
 A remote (Streamable HTTP) MCP server for the Intervals.icu training API, built
 as a **claude.ai custom connector**. Coaching business logic lives server-side so
 the assistant gets a complete result from a single tool call. It runs in parallel
-with (and is replacing) the commercial **IcuSync** managed MCP.
+with the athlete's existing managed connector, which it is incrementally taking
+over.
 
 ## Single source of truth — the handover document
 

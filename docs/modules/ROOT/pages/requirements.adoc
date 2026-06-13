@@ -7,7 +7,7 @@ This page captures the requirements for the custom Intervals.icu MCP server, der
 == Objective
 
 Build a custom MCP server for the Intervals.icu REST API that runs as a claude.ai remote connector.
-It runs in parallel with the existing commercial bridge (IcuSync) and replaces it incrementally, starting with the tools actively used by the coaching workflow plus capabilities IcuSync cannot provide.
+It runs in parallel with the athlete's existing managed connector and takes over incrementally, starting with the tools actively used by the coaching workflow plus capabilities a basic bridge does not expose.
 
 == Deployment configuration
 
@@ -50,12 +50,12 @@ All activity IDs are normalised to the `i`-prefixed form (e.g. `i150320999`).
 | `get_wellness` | HRV, sleep, resting HR, weight, mood etc. with an `hrvTrendDown` flag (HRV declining 3+ consecutive days).
 | `push_workout` | Create a `WORKOUT` event; applies Rule 1.
 | `update_event` | Update a planned event; applies Rule 1, inferring type from the existing event when needed.
-| `push_note` | Create a `NOTE`, including week-row range notes via `for_week` + an exclusive `end_date_local`. Net-new vs IcuSync.
+| `push_note` | Create a `NOTE`, including week-row range notes via `for_week` + an exclusive `end_date_local`. Net-new vs the managed connector.
 | `get_power_curves` | Best power efforts over standard durations. _See open items._
 | `get_training_summary` | Aggregate volume/load: total/ride/gym hours and load, `avg_ctl`, `max_atl`, `min_tsb`.
 |===
 
-=== Phase 2 — completed-activity writes (not in IcuSync)
+=== Phase 2 — completed-activity writes (not in the managed connector)
 
 [cols="1,3",options="header"]
 |===
@@ -64,7 +64,7 @@ All activity IDs are normalised to the `i`-prefixed form (e.g. `i150320999`).
 | `create_activity` | Create a manual completed activity (`source: MANUAL`); applies Rule 1. Stretch goal.
 |===
 
-=== Phase 3 — Plan Builder integration (not in IcuSync)
+=== Phase 3 — Plan Builder integration (not in the managed connector)
 
 [cols="1,3",options="header"]
 |===
@@ -75,14 +75,14 @@ All activity IDs are normalised to the `i`-prefixed form (e.g. `i150320999`).
 | `apply_plan` | Apply a saved plan folder to the calendar at a Monday start date.
 |===
 
-== Replacement rationale (vs IcuSync)
+== Capability rationale
 
-IcuSync covers basic reads but lacks: Rule 1 load calculation, coaching readiness flags, event `category` filtering, week-row notes, writes to completed activities, and all Plan Builder operations.
+A basic managed bridge covers core reads but lacks: Rule 1 load calculation, coaching readiness flags, event `category` filtering, week-row notes, writes to completed activities, and all Plan Builder operations.
 These gaps are the reason for the custom server.
 
 == Validation plan
 
-Before retiring each IcuSync tool, validate the replacement against it for the same date range / entity (compare CTL/ATL/TSB, activity lists, event lists, wellness fields, power values, and summary totals).
+Before retiring each tool on the managed connector, validate the replacement against it for the same date range / entity (compare CTL/ATL/TSB, activity lists, event lists, wellness fields, power values, and summary totals).
 Write tools are validated by creating a test entry, confirming it in the Intervals.icu UI, and deleting it.
-`push_note` has no IcuSync equivalent: confirm the week-row rendering and read back `end_date_local` + `for_week`.
-Once all Phase 1 tools are validated, remove IcuSync from the claude.ai connectors.
+`push_note` has no managed-connector equivalent: confirm the week-row rendering and read back `end_date_local` + `for_week`.
+Once all Phase 1 tools are validated, remove the managed connector from the claude.ai connectors.
