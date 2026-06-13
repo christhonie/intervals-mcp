@@ -23,6 +23,7 @@ import {
 	downsampleRate,
 	alignWindows,
 	summaryByOffset,
+	windowSlice,
 	type Series,
 } from "../src/signal.js";
 import { pearson } from "../src/stats.js";
@@ -182,5 +183,15 @@ describe("signal.ts — calibration against i156869660", () => {
 	it("alignWindows null-pads out-of-range positions", () => {
 		const { events } = alignWindows({ x: [0, 1, 2] }, [0], 2, 2); // window [-2..2)
 		expect(events[0].windows.x).toEqual([null, null, 0, 1]);
+	});
+
+	it("windowSlice produces the lag-shifted B series used by correlation", () => {
+		const b: Series = [0, 10, 20, 30, 40, 50];
+		// What compute_correlation_window correlates as B[t+lag] over [1,4):
+		expect(windowSlice(b, 1, 4, 0)).toEqual([10, 20, 30]); // lag 0
+		expect(windowSlice(b, 1, 4, 2)).toEqual([30, 40, 50]); // lag +2 → B[t+2]
+		expect(windowSlice(b, 4, 6, 2)).toEqual([null, null]); // shifted past the end → null-padded
+		// This is exactly what include_streams returns for stream_b, so the
+		// inspected signal matches the correlated one.
 	});
 });

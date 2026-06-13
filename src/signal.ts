@@ -452,6 +452,21 @@ export function downsampleRate(hz: number): number {
 	return 1 / Math.max(1, Math.round(1 / hz));
 }
 
+/**
+ * The values over [start, end) shifted by `offset`: out[i] = data[start+i+offset],
+ * null-padded out of range. offset 0 is a plain window; a positive offset gives
+ * the "B[t+lag]" series used in lagged correlation, so the same call produces
+ * both what was correlated and what is returned for inspection.
+ */
+export function windowSlice(data: Series, start: number, end: number, offset = 0): Series {
+	const out: Series = [];
+	for (let t = start; t < end; t++) {
+		const i = t + offset;
+		out.push(i >= 0 && i < data.length ? data[i] : null);
+	}
+	return out;
+}
+
 export interface AlignedEvent {
 	onset_sec: number;
 	windows: Record<string, Series>;

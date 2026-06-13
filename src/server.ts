@@ -23,6 +23,7 @@ import {
 	summarize,
 	summaryByOffset,
 	thresholdCrossings,
+	windowSlice,
 	type Series,
 	type StatName,
 	type StatsResult,
@@ -1186,14 +1187,11 @@ export class IntervalsMcpServer {
 				const av = ra.values;
 				const bv = rb.values;
 				// Correlate A[t] with B[t+lag] over [start, end), pairwise non-null.
+				// windowSlice is the single source of truth for both the correlated
+				// series and what include_streams returns, so they cannot diverge.
 				const corrAt = (lag: number) => {
-					const xs: Series = [];
-					const ys: Series = [];
-					for (let t = args.start_sec; t < args.end_sec; t++) {
-						const bt = t + lag;
-						xs.push(t < av.length ? av[t] : null);
-						ys.push(bt >= 0 && bt < bv.length ? bv[bt] : null);
-					}
+					const xs = windowSlice(av, args.start_sec, args.end_sec, 0);
+					const ys = windowSlice(bv, args.start_sec, args.end_sec, lag);
 					const { n, r, p } = pearson(xs, ys);
 					return { lag_seconds: lag, n_samples: n, pearson_r: r === null ? null : round3(r), p_value: p === null ? null : round4(p) };
 				};
@@ -1205,23 +1203,41 @@ export class IntervalsMcpServer {
 					end_sec: args.end_sec,
 					smooth_type: smooth ? "trailing_mean" : null,
 				};
-				if (args.include_streams) {
-					const sliceEnd = (arr: Series) => Math.min(args.end_sec, arr.length);
-					envelope.intermediate_streams = {
-						stream_a: { handle: refA, values: av.slice(args.start_sec, sliceEnd(av)).map((v) => round3(v)) },
-						stream_b: { handle: refB, values: bv.slice(args.start_sec, sliceEnd(bv)).map((v) => round3(v)) },
-					};
-				}
+				// Same windowing corrAt uses, rounded for output — so include_streams
+				// returns exactly the series that were correlated (B at +lag).
+				const windowed = (arr: Series, offset: number): Series =>
+					windowSlice(arr, args.start_sec, args.end_sec, offset).map((v) => round3(v));
+
 				if (args.lag_scan_seconds) {
 					const scan = args.lag_scan_seconds.map(corrAt);
 					const best =
 						scan
 							.filter((s) => s.pearson_r !== null)
 							.sort((a, b) => Math.abs(b.pearson_r as number) - Math.abs(a.pearson_r as number))[0] ?? null;
+					if (args.include_streams) {
+						// No single alignment across a scan — return the un-shifted
+						// source windows, explicitly labelled. Per-lag aligned pairs are
+						// not materialised here.
+						envelope.intermediate_streams = {
+							lag_applied: false,
+							note: "Un-shifted source windows; a lag scan pairs A[t] with B[t+lag] per lag, not materialised here.",
+							stream_a: { handle: refA, values: windowed(av, 0) },
+							stream_b: { handle: refB, values: windowed(bv, 0) },
+						};
+					}
 					return text({ ...envelope, scan, best });
 				}
-				const one = corrAt(args.lag_seconds ?? 0);
-				return text({ ...envelope, ...one });
+
+				const lag = args.lag_seconds ?? 0;
+				if (args.include_streams) {
+					// Exactly the two series corrAt() correlated: A[t] vs B[t+lag].
+					envelope.intermediate_streams = {
+						lag_seconds: lag,
+						stream_a: { handle: refA, values: windowed(av, 0) },
+						stream_b: { handle: refB, lag_seconds: lag, values: windowed(bv, lag) },
+					};
+				}
+				return text({ ...envelope, ...corrAt(lag) });
 			},
 		);
 
