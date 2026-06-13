@@ -73,15 +73,22 @@ npm run build           # tsc → dist/
 npm run inspect         # MCP Inspector against dist/index.js (stdio)
 ```
 
-Deploy is **container + Kubernetes (namespace `mcp`) via ArgoCD**:
+Deploy is **container + Kubernetes (namespace `mcp`) via ArgoCD**, and the
+build/push/tag-bump is **automated on merge to `main`** by
+`.github/workflows/release.yml` (see `docs/.../cicd.adoc`):
 
-1. Bump `VERSION` in `src/server.ts` **and** `package.json`.
-2. Build & push `docker.io/christhonie/intervals-mcp:<version>`.
-3. Bump the image tag in **`k8s/deployment.yaml`** — this drives the ArgoCD sync.
-4. After rollout, **reconnect the connector / start a new conversation**: MCP
+1. Bump `VERSION` in `src/server.ts` **and** `version` in `package.json`. The
+   image tag IS that version — one version = one release.
+2. Merge to `main`. The workflow then builds & pushes
+   `docker.io/christhonie/intervals-mcp:<version>`, rewrites the
+   **`k8s/deployment.yaml`** image tag, and commits it back — which is what drives
+   the ArgoCD sync. **Do not** build/push or edit the manifest tag by hand.
+3. After rollout, **reconnect the connector / start a new conversation**: MCP
    sessions are in-memory per pod, so claude.ai may hold a stale `Mcp-Session-Id`
    (404 "Unknown session") until reconnect. With `REDIS_URL` set, OAuth tokens
    survive rollouts so no re-auth is needed — only a session reconnect.
+- Requires a `DOCKER_PAT` repo secret (Docker Hub PAT). Manual redeploy of the
+  current version is available via the workflow's `workflow_dispatch` trigger.
 - Target endpoint: `https://icu-mcp.christhonie.co.za/mcp` · athlete `i579914`.
 - The deployed server (reachable via the `Intervals_MCP` / `IcuSync` connectors)
   reflects the **last deployed image**, not local working-tree changes — you can't
