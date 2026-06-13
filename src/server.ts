@@ -97,6 +97,15 @@ const WRITE_IDEM = { readOnlyHint: false, idempotentHint: true } as const;
 const RIDE_TYPES = new Set(["Ride", "VirtualRide"]);
 const isRide = (type: unknown): boolean => RIDE_TYPES.has(String(type));
 
+/**
+ * Stream names the streams endpoint returns under a different `type` than was
+ * requested. The API description states it "will return 'fixed_watts' as
+ * 'watts'", so a request for `fixed_watts` must be resolved against the `watts`
+ * entry. (`raw_watts` is returned under its requested name, so it needs no
+ * alias.) Used by get_activity_streams to avoid mis-reporting present streams.
+ */
+const STREAM_TYPE_ALIASES: Record<string, string> = { fixed_watts: "watts" };
+
 export class IntervalsMcpServer {
 	public server: McpServer;
 	private client: IntervalsClient;
@@ -943,7 +952,12 @@ export class IntervalsMcpServer {
 				const missing: string[] = [];
 				let duration = 0;
 				for (const name of args.streams) {
-					const s = byType.get(name);
+					// A few requested names come back under a canonical `type`: the
+					// API documents that `fixed_watts` is returned as `watts`. Fall
+					// back to the alias so a present stream isn't mis-reported as
+					// missing; output still keys on the caller's requested name.
+					const alias = STREAM_TYPE_ALIASES[name];
+					const s = byType.get(name) ?? (alias ? byType.get(alias) : undefined);
 					const data = s && Array.isArray(s.data) ? s.data : null;
 					if (data === null) {
 						missing.push(name);
