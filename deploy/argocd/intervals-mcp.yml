@@ -1,7 +1,7 @@
 # ArgoCD Application for the Intervals.icu MCP server.
 #
 # DEPLOY STEP: copy this file into the GitOps repo that ArgoCD watches
-#   ~/dev/idl-xnl-jhb-rc01/argocd/intervals-mcp.yml
+#   <gitops-repo>/argocd/intervals-mcp.yml
 # then commit + push (use `git rebase --autostash origin/main` first — that repo
 # receives automated commits). ArgoCD runs on the management cluster, not on the
 # destination cluster. See the remote-mcp-wrap skill.
@@ -15,7 +15,7 @@ metadata:
 spec:
   project: default
   destination:
-    name: idl-xnl-jhb1-rc01
+    name: <argocd-destination-cluster>
     namespace: mcp
   source:
     path: k8s

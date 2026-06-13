@@ -305,6 +305,29 @@ Consequences::
 * Calibration findings: two of the doc's literal example parameters do not reproduce on the real data and were corrected in the tests. (1) SmO₂ nadir detection at prominence 3.0 also catches the ~3% Z2-plateau wiggle (10 nadirs); the five standing bouts are deep (prominence 7.4–13.7) and isolate cleanly at prominence ≈ 5. (2) Standing-bout 4 (onset ~3633s) is shallow — its 10s-smoothed SmO₂ bottoms at 56.4%, so a falling-55% threshold detects 4 onsets while 57% detects all 5. The primitives are correct; the doc's knobs were optimistic. These are recorded back into the Signal Processing requirements doc.
 * Risk: the tools are unit-validated against the fixture but not yet live-validated end-to-end through the deployed MCP — confirm post-deploy.
 
+[#adr-015]
+=== ADR-015: Signal Processing Toolkit part 2 — shapers as producers; intermediate streams over lag compensation
+
+:adr-status: Accepted
+:adr-date: 2026-06-13
+
+Status:: Accepted
+
+Context::
+v0.1.16 completes Phase 11: the three "shaper" tools + the `align_events_to_stream` composite, plus amendments raised during the v0.1.15 validation run (in the Signal Processing Toolkit doc). One amendment ("note B") proposed compensating for the trailing-mean phase lag by adding `estimated_true_sec`/`lag_seconds` to every detected event, via the empirical formula `floor(window/2)+5`. A later recommendation in the same doc argued that formula is fragile (derived from four bouts; may not generalise) and proposed instead exposing the transformed stream so the coaching layer can observe the lag directly.
+
+Decision::
++
+* **Shapers are producers, not array-returners.** `smooth_stream` and `compute_derivative` return a deterministic derived-stream handle (`smo2~mean:10~d:1`) + a summary by default; `return_values:true` (+ optional `downsample_hz`) returns the array. `extract_segment` is the explicit windowed/downsampled materialiser. The handle is the recompute recipe (ADR-014 cache), so an intermediate stays server-side and composes by reference.
+* **Intermediate streams over lag compensation (note B withdrawn).** We did NOT ship `estimated_true_sec`/`lag_seconds`/the `floor(window/2)+5` formula. Instead, the three single-stream detectors take an opt-in `include_stream` (and `compute_correlation_window` an `include_streams`) that appends the exact transformed values the tool ran on, so the coaching layer inspects the smoothed/derived signal rather than correcting it with a formula. The "separate `get_derived_stream` tool" alternative (Option B) was rejected as redundant: `extract_segment` on a detector's `resolved_handle` already returns precisely that stream from the shared deterministic cache (same handle → same values).
+* **Lag scan in one call (note D).** `compute_correlation_window` gained `lag_scan_seconds: [...]`, returning a `scan` + `best`, removing the "7 sequential calls" limitation for the RMSSD/SmO₂ inverse-correlation follow-up.
+
+Consequences::
++
+* Positive: no fragile empirical constant baked into the server; the intermediate signal is observable and provably identical to what the detector used; the shaper/`extract_segment` surface and the inline `include_stream` give both a standalone and a one-call path with no redundant tool.
+* The Supabase `smo2_resaturation_rate` from `i156869660` is still lag-inflated (per note B's standing observation) and should be recomputed from corrected nadir positions once the intermediate stream is used live — that observation survives note B's withdrawal.
+* Risk: unit-validated against the fixture (25 tests, incl. the align per-bout nadir reproduction) but not yet live-validated end-to-end — confirm post-deploy.
+
 == Requirement change log
 
 [cols="1,3",options="header"]
@@ -316,11 +339,12 @@ Consequences::
 | 2026-06-03 | `kg_lifted` write support on `update_activity`/`create_activity` (Intervals' new Weight Lifted field). WeightTraining fitness contribution set to 100% — confirmed to fix the calendar tile + compliance ring (ADR-009/011 corrected). Ride HR zones revised. IcuSync demoted to secondary/backup (ADR-012). The 2026-06-03 Intervals news was otherwise UI/integration-only (no API impact).
 | 2026-06-13 | Phase 10 — `get_activity_streams` (raw per-second streams) added for the SmO₂ + DFA α1 baselining programme (v0.1.14). API shape differed from the handover spec (query param `types`, array response) — see ADR-013.
 | 2026-06-13 | Phase 11 (part 1) — Signal Processing Toolkit foundation + 5 reducer tools (`detect_threshold_crossings`, `detect_peaks_nadirs`, `compute_epoch_stats`, `compute_correlation_window`, `detect_plateaus`) at v0.1.15. Derived-stream handles + shared cached fetch; vitest harness + `i156869660` fixture. Shapers + `align_events_to_stream` follow in v0.1.16. See ADR-014.
+| 2026-06-13 | Phase 11 (part 2) — `smooth_stream`/`compute_derivative` (handle producers), `extract_segment`, `align_events_to_stream`, correlation `lag_scan_seconds`, and opt-in `include_stream`/`include_streams` at v0.1.16. The v0.1.15 "note B" lag-compensation fields were withdrawn in favour of exposing the intermediate stream. See ADR-015.
 |===
 
 == Validation status
 
-Read tools were validated live against athlete i579914 on 2026-06-02:
+Read tools were validated live against athlete ixxxxx on 2026-06-02:
 
 * *`get_power_curves`* — RESOLVED. The endpoint works with `type` + date range; the spec's required `f1`/`f2`/`f3` are tolerated absent. Output is projected to standard durations (5s/1min/5min/20min/60min) with watts and W/kg.
 * *eFTP* — RESOLVED. Sourced from `wellness.sportInfo[].eftp`, not a top-level field.

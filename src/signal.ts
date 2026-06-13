@@ -423,3 +423,104 @@ export function plateaus(
 			return { start_sec: s, end_sec: e, duration_s: e - s, mean_value: st.mean!, sd_value: st.sd ?? null };
 		});
 }
+
+// ── Downsampling & event alignment (Phase 11 part 2) ──
+
+/**
+ * Reduce a 1 Hz series to `hz` samples per second by averaging each bucket
+ * (null-skipping). `hz` ≥ 1 (or non-positive) returns a copy unchanged. E.g.
+ * hz = 0.1 → one value per 10 s, each the mean of that 10 s window.
+ */
+export function downsample(data: Series, hz: number): Series {
+	if (!(hz > 0) || hz >= 1) return data.slice();
+	const period = Math.max(1, Math.round(1 / hz));
+	const out: Series = [];
+	for (let i = 0; i < data.length; i += period) {
+		out.push(computeStats(data.slice(i, i + period), ["mean"]).mean ?? null);
+	}
+	return out;
+}
+
+/**
+ * The ACTUAL output rate of downsample(data, hz). Because the bucket period is
+ * `round(1/hz)` (an integer), the realised rate is `1 / round(1/hz)`, which
+ * equals the requested `hz` only when `hz` is exactly 1/N. Returns 1 for hz that
+ * is non-positive or ≥ 1 (downsample is a no-op there).
+ */
+export function downsampleRate(hz: number): number {
+	if (!(hz > 0) || hz >= 1) return 1;
+	return 1 / Math.max(1, Math.round(1 / hz));
+}
+
+/**
+ * The values over [start, end) shifted by `offset`: out[i] = data[start+i+offset],
+ * null-padded out of range. offset 0 is a plain window; a positive offset gives
+ * the "B[t+lag]" series used in lagged correlation, so the same call produces
+ * both what was correlated and what is returned for inspection.
+ */
+export function windowSlice(data: Series, start: number, end: number, offset = 0): Series {
+	const out: Series = [];
+	for (let t = start; t < end; t++) {
+		const i = t + offset;
+		out.push(i >= 0 && i < data.length ? data[i] : null);
+	}
+	return out;
+}
+
+export interface AlignedEvent {
+	onset_sec: number;
+	windows: Record<string, Series>;
+}
+
+/**
+ * Extract a fixed [onset-pre, onset+post) window of each stream around every
+ * event onset. Out-of-range positions are null-padded, so every window is
+ * exactly `pre + post` samples and positionally comparable across events.
+ */
+export function alignWindows(
+	streams: Record<string, Series>,
+	eventsSec: number[],
+	pre: number,
+	post: number,
+): { length: number; events: AlignedEvent[] } {
+	const length = pre + post;
+	const names = Object.keys(streams);
+	const events = eventsSec.map((onset) => {
+		const windows: Record<string, Series> = Object.create(null);
+		for (const name of names) {
+			const arr = streams[name];
+			const w: Series = new Array(length).fill(null);
+			for (let i = 0; i < length; i++) {
+				const idx = onset - pre + i;
+				if (idx >= 0 && idx < arr.length) w[i] = arr[idx];
+			}
+			windows[name] = w;
+		}
+		return { onset_sec: onset, windows };
+	});
+	return { length, events };
+}
+
+/**
+ * Mean and SD across all aligned events at each time offset — the "average
+ * response shape". Nulls are skipped per offset.
+ */
+export function summaryByOffset(
+	events: AlignedEvent[],
+	names: string[],
+	length: number,
+): Record<string, { mean_by_offset: (number | null)[]; sd_by_offset: (number | null)[] }> {
+	const out: Record<string, { mean_by_offset: (number | null)[]; sd_by_offset: (number | null)[] }> = Object.create(null);
+	for (const name of names) {
+		const mean_by_offset: (number | null)[] = [];
+		const sd_by_offset: (number | null)[] = [];
+		for (let i = 0; i < length; i++) {
+			const col: Series = events.map((e) => e.windows[name][i]);
+			const st = computeStats(col, ["mean", "sd"]);
+			mean_by_offset.push(st.mean ?? null);
+			sd_by_offset.push(st.sd ?? null);
+		}
+		out[name] = { mean_by_offset, sd_by_offset };
+	}
+	return out;
+}

@@ -1,8 +1,41 @@
 # Release Log
 
 Release history for the Intervals.icu MCP server. Newest first. Versions follow
-[Semantic Versioning](https://semver.org/). The image tag in
-`k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
+[Semantic Versioning](https://semver.org/). **Bump `version` in `package.json`
+only** — the CI release pipeline (`.github/workflows/release.yml`) builds the
+image from that version on merge to `main` and bumps `k8s/deployment.yaml`
+itself (do not bump the manifest in a PR; see ADR-013/the pipeline header).
+
+## 0.1.16 — 2026-06-13
+
+Phase 11 part 2 — Signal Processing Toolkit: the 3 shaper tools (as derived-stream
+producers) + the `align_events_to_stream` composite, plus amendments from the
+v0.1.15 validation (Signal Processing Toolkit doc).
+
+### Added
+- **`smooth_stream`** / **`compute_derivative`** — *producers*: by default they
+  return a deterministic derived-stream **handle** (`smo2~mean:10`,
+  `smo2~mean:10~d:1`) + a summary, **not** the array, so the high-fidelity series
+  stays server-side and composes by reference. `return_values: true` (+ optional
+  `downsample_hz`) returns the values.
+- **`extract_segment`** — the explicit materialiser: raw or derived stream values
+  over a window, optional smoothing + downsampling. Also the standalone way to
+  fetch the exact intermediate stream a detector ran on (pass its `resolved_handle`).
+- **`align_events_to_stream`** — event-aligned window extraction around onsets,
+  with `summary_stats` returning the mean/SD response shape across events.
+- **`compute_correlation_window` lag scan** — `lag_scan_seconds: [...]` computes
+  all lags in one call and returns `scan` + `best` (strongest |r|). Removes the
+  "7 sequential calls" limitation noted in the toolkit doc (amendment D).
+- **`include_stream` / `include_streams`** (opt-in) on the detectors /
+  correlation — append the transformed `intermediate_stream(s)` the tool ran on,
+  so the coaching layer can inspect the smoothed/derived signal (e.g. see the
+  trailing-mean phase lag) directly. See ADR-015.
+
+### Changed / decisions
+- **Withdrew the v0.1.15 "note B" lag-compensation** (`estimated_true_sec` /
+  `lag_seconds` / `floor(window/2)+5`). Per the toolkit doc's "intermediate
+  streams" recommendation, exposing the actual transformed signal
+  (`include_stream`) supersedes the fragile empirical lag formula. ADR-015.
 
 ## 0.1.15 — 2026-06-13
 
@@ -237,7 +270,7 @@ Phase 5 enablement — clear-a-week support for `push_sport_targets`.
   week are never touched. Useful for travel / no-target weeks and for tidying
   stray placeholders. The non-empty behaviour (one TARGET per sport) is unchanged.
 
-### Applied (live calendar, athlete i579914)
+### Applied (live calendar, athlete ixxxxx)
 - **CR-04** — removed the null-load TARGET placeholder on the 2026-05-04 week.
 - **CR-05** — relabelled the 2026-07-27 week as Base recovery (Ride 99/120 min,
   WeightTraining 66/90 min, Base-recovery notes).
@@ -306,7 +339,7 @@ PR #1 review fixes (supersedes the 0.1.4 branch test image before merge).
 
 ### Deploy notes
 - Image `0.1.4` is built and pushed. `REDIS_URL` has been added to the
-  `intervals-mcp-secrets` Secret (sourced from `redis/redis-credentials`).
+  `intervals-mcp-secrets` Secret (sourced from the cluster Redis credentials secret).
 - Validated live: deployed from this branch and confirmed an OAuth token survives
   a real pod rollout (token issued, `rollout restart`, same token reused → 200).
 - On merge to `main`, ArgoCD deploys `0.1.4` (the manifest image tag is bumped in
@@ -408,7 +441,7 @@ Initial implementation. Deployed to `https://icu-mcp.christhonie.co.za/mcp`.
 - Antora ROOT-module documentation (requirements, design, decision log).
 
 ### Live read-validation (2026-06-02)
-All read tools verified against the live API for athlete i579914:
+All read tools verified against the live API for athlete ixxxxx:
 - `get_power_curves`: the endpoint works with just `type` + date range (the
   spec's required `f1`/`f2`/`f3` are tolerated absent). Output is projected to the
   standard durations (5s/1min/5min/20min/60min) with watts and W/kg. Resolved.

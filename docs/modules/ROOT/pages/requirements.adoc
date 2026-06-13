@@ -17,7 +17,7 @@ It runs in parallel with the existing commercial bridge (IcuSync) and replaces i
 | Kubernetes namespace | `mcp`
 | Target endpoint | `https://icu-mcp.christhonie.co.za/mcp`
 | Upstream API key env var | `INTERVALS_API_KEY`
-| Athlete ID env var | `INTERVALS_ATHLETE_ID` = `i579914`
+| Athlete ID env var | `INTERVALS_ATHLETE_ID` = `ixxxxx`
 | Upstream auth | HTTP Basic: username literal `API_KEY`, password = `INTERVALS_API_KEY`
 | Base URL | `https://intervals.icu`
 |===

@@ -10,7 +10,9 @@ with (and is replacing) the commercial **IcuSync** managed MCP.
 The authoritative spec for this project is the **Outline handover doc**, not this
 repo. Read it in full before starting any phase of work:
 
-- **URL:** https://idealogic-co.getoutline.com/doc/claude-code-handover-custom-intervalsicu-mcp-server-JmhG9KoZCi
+- **URL:** kept out of this public repo. Find the handover doc in the Outline
+  workspace (search its title, "Claude Code Handover — Custom Intervals.icu MCP
+  Server"), or read it from your local untracked notes.
 - Access it via the **Outline MCP** (`fetch` with `resource: document`). It is
   large (~125 KB) — fetching returns a saved file path; extract the markdown with
   `jq -r '.[].text'` and grep for the phase/section you need rather than reading
@@ -89,7 +91,7 @@ build/push/tag-bump is **automated on merge to `main`** by
    survive rollouts so no re-auth is needed — only a session reconnect.
 - Requires a `DOCKER_PAT` repo secret (Docker Hub PAT). Manual redeploy of the
   current version is available via the workflow's `workflow_dispatch` trigger.
-- Target endpoint: `https://icu-mcp.christhonie.co.za/mcp` · athlete `i579914`.
+- Target endpoint: `https://icu-mcp.christhonie.co.za/mcp` · athlete `ixxxxx`.
 - The deployed server (reachable via the `Intervals_MCP` / `IcuSync` connectors)
   reflects the **last deployed image**, not local working-tree changes — you can't
   live-test a new tool until it's deployed.
