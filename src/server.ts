@@ -1423,7 +1423,7 @@ export class IntervalsMcpServer {
 			"align_events_to_stream",
 			{
 				description:
-					"Extract a fixed [onset-pre, onset+post) window of one or more streams around each event onset, returning the aligned per-event matrix. With summary_stats:true also returns the mean/SD response shape across all events per time offset — directly comparable across sessions. Pass TRUE onsets in events_sec (if from a detector on a smoothed stream, use its estimated_true_sec). The capstone for standing-bout / event-response analysis. Read-only.",
+					"Extract a fixed [onset-pre, onset+post) window of one or more streams around each event onset, returning the aligned per-event matrix. With summary_stats:true also returns the mean/SD response shape across all events per time offset — directly comparable across sessions. Pass TRUE onsets in events_sec; a detector's event sec from a smoothed stream is phase-lagged, so inspect/correct it via that detector's include_stream (or extract_segment on its resolved_handle) first. The capstone for standing-bout / event-response analysis. Read-only.",
 				inputSchema: schemas.AlignEventsToStreamInput,
 				annotations: RO,
 			},
