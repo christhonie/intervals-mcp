@@ -3,3 +3,4 @@
 * xref:design.adoc[Design]
 * xref:decision-log.adoc[Decision Log]
 * xref:cicd.adoc[CI/CD — Release & Deploy]
+* xref:runbook-secret-rotation.adoc[Runbook — Rotating Secrets]
