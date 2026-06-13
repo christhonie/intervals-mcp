@@ -2,3 +2,4 @@
 * xref:requirements.adoc[Requirements]
 * xref:design.adoc[Design]
 * xref:decision-log.adoc[Decision Log]
+* xref:cicd.adoc[CI/CD — Release & Deploy]

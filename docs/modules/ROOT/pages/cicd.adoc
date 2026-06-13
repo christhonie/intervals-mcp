@@ -1,0 +1,127 @@
+= CI/CD — Automated Release & Deploy
+:description: How a push to main builds a release image and rolls it out via ArgoCD, and how to set the same pipeline up on the other MCP servers.
+:keywords: ci-cd, github-actions, docker, argocd, deploy, mcp
+
+This page documents the release automation for this MCP server and is written to
+be *repeatable*: the same recipe applies to the sibling MCP servers
+(`fatsecret-mcp`, `hevy-mcp`, `ems-mcp-server`).
+
+It is the lightweight counterpart to the EMS GitHub Actions architecture
+(Maven/JIB/Helm + reusable workflows + a separate GitOps repo). These MCP servers
+are small Node/TypeScript + Docker projects whose ArgoCD `Application` watches
+**their own** `k8s/` directory on `main`, so the pipeline is a single
+self-contained workflow per repo rather than a reusable-workflow fan-out.
+
+== Deploy topology
+
+[source]
+----
+merge PR to main
+       │
+       ▼
+.github/workflows/release.yml   (this repo)
+       │  1. build image  docker.io/christhonie/<service>:<package.json version>
+       │  2. push image
+       │  3. sed the tag into k8s/deployment.yaml
+       │  4. commit + push that one-line change back to main  ([skip ci])
+       ▼
+ArgoCD Application  (watches repoURL=<this repo>, path=k8s, targetRevision=main)
+       │
+       ▼
+rollout in namespace `mcp`
+----
+
+The ArgoCD `Application` lives at `deploy/argocd/intervals-mcp.yml` and is
+configured with `path: k8s`, `targetRevision: main`, `syncPolicy.automated`. It is
+the manifest **commit** — not the image push — that triggers the rollout.
+
+== The version contract
+
+The image tag *is* the `version` in `package.json`. Therefore:
+
+* **Bump `version` in `package.json` in your PR** (and keep `VERSION` in
+  `src/server.ts` in sync — it is surfaced to the MCP client). One version = one
+  release.
+* If the version is unchanged when you merge, the manifest tag does not change,
+  ArgoCD does not roll, and (with `imagePullPolicy: IfNotPresent`) the node keeps
+  the cached image. The workflow detects this and skips the commit with a log line
+  rather than mutating an already-published tag.
+
+You no longer hand-edit `k8s/deployment.yaml` — the workflow owns that line.
+
+== Ordering & loop-prevention (the two things that make this safe)
+
+Build-before-bump::
+The image must exist in the registry before the manifest points at it, or ArgoCD
+rolls a tag that cannot be pulled (`ImagePullBackOff`). The build/push step runs
+first; the `sed` + commit steps follow in the same job, so the order is
+guaranteed.
+
+No self-trigger loop::
+The workflow's own tag-bump commit is a push to `main`. Two independent guards
+stop it re-triggering the workflow:
+
+* `paths-ignore: [k8s/**, …]` — the bot commit only touches `k8s/deployment.yaml`,
+  which is ignored. (This is also why a *manual* `k8s/` edit won't rebuild — it
+  doesn't need to; ArgoCD syncs manifest changes directly.)
+* `[skip ci]` in the commit message — a second backstop.
+
+== Per-repo setup (the repeatable recipe)
+
+To put this pipeline on another MCP server:
+
+. **Copy the workflow.** Copy `.github/workflows/release.yml` into the target repo.
+. **Set the two env values** at the top of the workflow — nothing else changes:
++
+[source,yaml]
+----
+env:
+  REGISTRY_USER: christhonie
+  IMAGE: docker.io/christhonie/<service>   # e.g. docker.io/christhonie/hevy-mcp
+----
+. **Add the Docker Hub token secret** (one per repo — `christhonie` is a user, so
+  there are no org-level secrets):
++
+[source,bash]
+----
+gh secret set DOCKER_PAT --repo christhonie/<service> --body '<docker-hub-pat>'
+----
+. **Confirm the manifest line format.** `k8s/deployment.yaml` must have a single
+  line matching `image: docker.io/christhonie/<service>:<tag>`; the `sed` keys off
+  that exact prefix.
+. **Confirm the ArgoCD `Application`** watches the repo's own `k8s/` on `main`
+  (`path: k8s`, `targetRevision: main`, `syncPolicy.automated`). All four MCP
+  servers follow this shape.
+
+No repo-settings change is required: the workflow declares
+`permissions: contents: write` explicitly, which grants the tag-bump commit write
+access for that run even when the repo's *default* workflow permission is `read`.
+
+[NOTE]
+====
+If `main` is later protected with a rule that requires PRs/reviews, the bot's
+direct push will be rejected. Either add `github-actions[bot]` to the
+bypass-allowances, or move the manifest into a separate unprotected GitOps repo
+and switch to the EMS-style `argocd-update.yml` approach. These MCP repos are
+currently unprotected, so the direct push works.
+====
+
+== Manual redeploy
+
+The workflow also exposes `workflow_dispatch`, so you can re-run a build/redeploy
+of the current `package.json` version from the Actions tab without a code change.
+
+== Why not the EMS reusable-workflow model?
+
+The EMS services share a large, complex build (Maven profiles, JIB, Helm chart
+packaging, GitFlow finish) across many repos, so centralising it in
+`christhonie/event/.github/workflows/*` and deploying via the
+`idl-xnl-jhb-rc01` GitOps repo earns its keep. See
+`docs-event` → *Development* → *GitHub Actions CI/CD* for that architecture.
+
+For four near-identical ~90-line Node pipelines whose manifest lives in-repo, a
+self-contained workflow is easier to read, has no cross-repo access setup, and no
+`@main` coupling. If the MCP fleet grows enough that the duplication hurts,
+promote this file into a reusable workflow (host repo + *Settings → Actions →
+Access → accessible from owned repos*) and replace each copy with a ~10-line
+caller — the build/bump logic transfers unchanged.
