@@ -3,14 +3,14 @@
 :keywords: mcp, intervals.icu, claude, cycling, training, coaching
 
 A custom Model Context Protocol (MCP) server for the https://intervals.icu[Intervals.icu] training API.
-It is deployed as a remote claude.ai custom connector and replaces the commercial IcuSync managed MCP, adding capabilities IcuSync cannot provide.
+It is deployed as a remote claude.ai custom connector and offers coaching-specific capabilities beyond a basic Intervals.icu bridge.
 
 == Overview
 
 The server exposes coaching-focused tools — fitness/PMC metrics, training history, calendar workouts, wellness, week-row notes, and Plan Builder targets — with the coaching business logic embedded server-side.
 The calling assistant gets a complete, decision-ready result from a single tool call rather than having to orchestrate multiple requests or perform arithmetic itself.
 
-It runs in parallel with IcuSync during a burn-in period and replaces it incrementally once each tool is validated.
+It runs in parallel with the athlete's existing managed connector during a burn-in period, taking over incrementally once each tool is validated.
 
 == Getting Started
 
