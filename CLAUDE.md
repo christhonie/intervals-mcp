@@ -75,7 +75,7 @@ npm run inspect         # MCP Inspector against dist/index.js (stdio)
 
 Deploy is **container + Kubernetes (namespace `mcp`) via ArgoCD**, and the
 build/push/tag-bump is **automated on merge to `main`** by
-`.github/workflows/release.yml` (see `docs/.../cicd.adoc`):
+`.github/workflows/release.yml` (see `docs/modules/ROOT/pages/cicd.adoc`):
 
 1. Bump `VERSION` in `src/server.ts` **and** `version` in `package.json`. The
    image tag IS that version — one version = one release.
