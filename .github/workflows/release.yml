@@ -82,9 +82,12 @@ jobs:
       # ── THEN bump the manifest tag and commit it back; ArgoCD picks it up ──
       - name: Bump image tag in k8s/deployment.yaml
         run: |
-          # Replace the tag on the line that references our image. '#' delimiter
-          # avoids clashing with the '/' in the image path.
-          sed -i -E "s#(image: ${IMAGE}:)[^[:space:]]+#\1${{ steps.ver.outputs.version }}#" k8s/deployment.yaml
+          # Match only OUR image line. Escape regex metacharacters in IMAGE first
+          # (the dots in 'docker.io' would otherwise match any char), so the
+          # pattern keys off the exact prefix and never touches a future sidecar
+          # 'image:' line. '#' delimiter avoids clashing with the '/' in the path.
+          image_re=$(printf '%s' "$IMAGE" | sed -E 's/[][\\.^$*+?(){}|]/\\&/g')
+          sed -i -E "s#(image: ${image_re}:)[^[:space:]]+#\1${{ steps.ver.outputs.version }}#" k8s/deployment.yaml
           echo "Manifest now:"; grep 'image:' k8s/deployment.yaml
 
       - name: Commit and push tag bump
