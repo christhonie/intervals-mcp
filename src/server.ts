@@ -8,13 +8,13 @@
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { IntervalsClient, IntervalsApiError } from "./intervals-client.js";
+import { IntervalsClient, IntervalsApiError, normalizeActivityId } from "./intervals-client.js";
 import type { IntervalsConfig } from "./config.js";
 import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.13";
+const VERSION = "0.1.14";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -97,6 +97,15 @@ const WRITE_IDEM = { readOnlyHint: false, idempotentHint: true } as const;
 const RIDE_TYPES = new Set(["Ride", "VirtualRide"]);
 const isRide = (type: unknown): boolean => RIDE_TYPES.has(String(type));
 
+/**
+ * Stream names the streams endpoint returns under a different `type` than was
+ * requested. The API description states it "will return 'fixed_watts' as
+ * 'watts'", so a request for `fixed_watts` must be resolved against the `watts`
+ * entry. (`raw_watts` is returned under its requested name, so it needs no
+ * alias.) Used by get_activity_streams to avoid mis-reporting present streams.
+ */
+const STREAM_TYPE_ALIASES: Record<string, string> = { fixed_watts: "watts" };
+
 export class IntervalsMcpServer {
 	public server: McpServer;
 	private client: IntervalsClient;
@@ -108,6 +117,7 @@ export class IntervalsMcpServer {
 		this.registerPhase2();
 		this.registerPhase3();
 		this.registerPhase9();
+		this.registerPhase10();
 	}
 
 	// ── Phase 1 ──
@@ -915,6 +925,56 @@ export class IntervalsMcpServer {
 				if (args.description !== undefined) body.description = args.description;
 				if (args.tags !== undefined) body.tags = args.tags;
 				return text(await this.client.createEvent(body));
+			},
+		);
+	}
+
+	// ── Phase 10 — raw activity streams ──
+
+	private registerPhase10(): void {
+		this.server.registerTool(
+			"get_activity_streams",
+			{
+				description:
+					"Raw per-second time-series (streams) for one completed activity — e.g. smo2, heartrate, watts, cadence, dfa_a1, RMSSD. Returns each requested stream as a sample array at 1 Hz; arrays are positionally aligned (index 0 = second 0; the same index across streams is the same moment). Use this for sub-interval analysis (e.g. standing-bout SmO₂ resaturation, intra-session drift) that the aggregate/detail tools cannot resolve. Stream names are case-sensitive and passed through unchanged (RMSSD is uppercase). Any requested stream the activity does not have is listed under missing_streams. Read-only.",
+				inputSchema: schemas.GetActivityStreamsInput,
+				annotations: RO,
+			},
+			async (args) => {
+				// The API returns an array of { type, data, … } ActivityStream
+				// objects. Key by stream name, preserving the caller's requested
+				// names and their case, so the output matches what was asked for.
+				const raw = (await this.client.getActivityStreams(args.activity_id, args.streams)) ?? [];
+				const byType = new Map<string, any>();
+				for (const s of raw) if (s && s.type != null) byType.set(String(s.type), s);
+
+				const streams: Record<string, unknown> = {};
+				const missing: string[] = [];
+				let duration = 0;
+				for (const name of args.streams) {
+					// A few requested names come back under a canonical `type`: the
+					// API documents that `fixed_watts` is returned as `watts`. Fall
+					// back to the alias so a present stream isn't mis-reported as
+					// missing; output still keys on the caller's requested name.
+					const alias = STREAM_TYPE_ALIASES[name];
+					const s = byType.get(name) ?? (alias ? byType.get(alias) : undefined);
+					const data = s && Array.isArray(s.data) ? s.data : null;
+					if (data === null) {
+						missing.push(name);
+						continue;
+					}
+					streams[name] = data;
+					if (data.length > duration) duration = data.length;
+				}
+
+				const result: Record<string, unknown> = {
+					activity_id: normalizeActivityId(args.activity_id),
+					duration_seconds: duration,
+					sample_rate_hz: 1,
+					streams,
+				};
+				if (missing.length) result.missing_streams = missing;
+				return text(result);
 			},
 		);
 	}

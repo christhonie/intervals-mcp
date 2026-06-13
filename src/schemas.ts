@@ -25,6 +25,16 @@ export const GetActivityDetailInput = {
 	activity_id: z.string().describe("Activity id, e.g. i150320999 (i-prefix is normalised automatically)."),
 };
 
+export const GetActivityStreamsInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660 (i-prefix is normalised automatically)."),
+	streams: z
+		.array(z.string())
+		.nonempty()
+		.describe(
+			'Stream names to fetch, e.g. ["smo2", "heartrate", "watts", "dfa_a1", "RMSSD"]. Passed to the API exactly as supplied — case-sensitive (e.g. RMSSD is uppercase in the stream registry). Known streams on a typical ride: time, watts, cadence, heartrate, distance, velocity_smooth, temp, torque, smo2, dfa_a1, RMSSD.',
+		),
+};
+
 export const GetEventsInput = {
 	oldest: isoDate().optional().describe("Start date (ISO). Default: 7 days ago."),
 	newest: isoDate().optional().describe("End date (ISO). Default: 28 days from today."),

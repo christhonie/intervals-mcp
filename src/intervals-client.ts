@@ -113,6 +113,21 @@ export class IntervalsClient {
 		return this.request("GET", `/api/v1/activity/${normalizeActivityId(activityId)}`);
 	}
 
+	/**
+	 * Raw per-second time-series (streams) for an activity. The OpenAPI path is
+	 * `/streams{ext}`; like getActivity we omit the Spring content-negotiation
+	 * suffix and rely on the Accept header for JSON. NOTE: the query param is
+	 * `types` (the handover doc's `streams=` was a guess — see ADR-013), and the
+	 * response is an array of ActivityStream objects ({type, data, …}), not an
+	 * object keyed by stream name. includeDefaults defaults to false server-side,
+	 * so only the requested types come back.
+	 */
+	getActivityStreams(activityId: string, types: string[]): Promise<any[]> {
+		return this.request("GET", `/api/v1/activity/${normalizeActivityId(activityId)}/streams`, {
+			query: { types },
+		});
+	}
+
 	updateActivity(activityId: string, body: Record<string, unknown>): Promise<any> {
 		return this.request("PUT", `/api/v1/activity/${normalizeActivityId(activityId)}`, { body });
 	}
