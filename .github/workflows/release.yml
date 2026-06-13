@@ -55,6 +55,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The final step commits the manifest tag bump back to main. main has a
+          # ruleset (require pull request); the default GITHUB_TOKEN / github-
+          # actions[bot] is not a bypass actor, so its push is rejected (GH013).
+          # Check out with an admin PAT (RELEASE_PAT, Contents: read+write) so the
+          # bump is pushed as a bypassing actor. persist-credentials (default true)
+          # makes the later `git push` reuse this token.
+          token: ${{ secrets.RELEASE_PAT || github.token }}
 
       - name: Read version from package.json
         id: ver
