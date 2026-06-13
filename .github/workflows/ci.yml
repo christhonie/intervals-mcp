@@ -1,0 +1,53 @@
+name: '✅ CI — type-check & tests'
+
+# Pull-request gate. Runs the TypeScript type-check and the vitest suite (incl.
+# the i156869660 calibration tests) on every PR to main, so a regression is
+# caught BEFORE merge rather than after the release pipeline has already built
+# and deployed the image.
+#
+# The release pipeline (release.yml) only runs `tsc` implicitly via the Docker
+# build and never runs the test suite, so this is the only thing exercising the
+# calibration fixture in CI.
+
+on:
+  pull_request:
+    branches: [main]
+    # Skip doc-/manifest-only PRs — they can't break the type-check or tests.
+    # (If branch protection later makes this a required check, drop paths-ignore
+    # so the check still reports on doc-only PRs.)
+    paths-ignore:
+      - '**.md'
+      - '**.adoc'
+      - 'docs/**'
+      - 'k8s/**'
+
+permissions:
+  contents: read
+
+# One CI run per PR; cancel an in-flight run when new commits are pushed.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Type-check & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Test
+        run: npm test
