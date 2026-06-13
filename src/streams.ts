@@ -54,9 +54,15 @@ export function parseRef(ref: string): StreamRef {
 	for (const tok of parts.slice(1)) {
 		const [name, arg] = tok.split(":");
 		if (name === "mean") {
+			// Windows must be positive integers. Handles are deterministic recipes,
+			// so a fractional window (which would silently floor — "mean:0.5" →
+			// "mean:0", colliding handles and yielding an invalid 0-width window) is
+			// rejected rather than coerced.
 			const w = Number(arg);
-			if (!Number.isFinite(w) || w <= 0) throw new Error(`Invalid window in mean op of "${ref}": "${arg}"`);
-			ops.push({ op: "trailing_mean", window_seconds: Math.floor(w) });
+			if (!Number.isInteger(w) || w <= 0) {
+				throw new Error(`mean window must be a positive integer in "${ref}", got "${arg}"`);
+			}
+			ops.push({ op: "trailing_mean", window_seconds: w });
 		} else if (name === "d") {
 			const order = Number(arg);
 			if (order !== 1 && order !== 2) throw new Error(`Derivative order must be 1 or 2 in "${ref}", got "${arg}"`);

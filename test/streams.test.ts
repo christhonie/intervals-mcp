@@ -46,6 +46,8 @@ describe("streams.ts — references & handles", () => {
 
 	it("rejects malformed references", () => {
 		expect(() => parseRef("smo2~mean:0")).toThrow();
+		expect(() => parseRef("smo2~mean:0.5")).toThrow(); // fractional windows rejected, not floored
+		expect(() => parseRef("smo2~mean:1.5")).toThrow();
 		expect(() => parseRef("smo2~d:3")).toThrow();
 		expect(() => parseRef("smo2~bogus:1")).toThrow();
 	});
