@@ -270,7 +270,7 @@ Phase 5 enablement — clear-a-week support for `push_sport_targets`.
   week are never touched. Useful for travel / no-target weeks and for tidying
   stray placeholders. The non-empty behaviour (one TARGET per sport) is unchanged.
 
-### Applied (live calendar, athlete i579914)
+### Applied (live calendar, athlete ixxxxx)
 - **CR-04** — removed the null-load TARGET placeholder on the 2026-05-04 week.
 - **CR-05** — relabelled the 2026-07-27 week as Base recovery (Ride 99/120 min,
   WeightTraining 66/90 min, Base-recovery notes).
@@ -339,7 +339,7 @@ PR #1 review fixes (supersedes the 0.1.4 branch test image before merge).
 
 ### Deploy notes
 - Image `0.1.4` is built and pushed. `REDIS_URL` has been added to the
-  `intervals-mcp-secrets` Secret (sourced from `redis/redis-credentials`).
+  `intervals-mcp-secrets` Secret (sourced from the cluster Redis credentials secret).
 - Validated live: deployed from this branch and confirmed an OAuth token survives
   a real pod rollout (token issued, `rollout restart`, same token reused → 200).
 - On merge to `main`, ArgoCD deploys `0.1.4` (the manifest image tag is bumped in
@@ -441,7 +441,7 @@ Initial implementation. Deployed to `https://icu-mcp.christhonie.co.za/mcp`.
 - Antora ROOT-module documentation (requirements, design, decision log).
 
 ### Live read-validation (2026-06-02)
-All read tools verified against the live API for athlete i579914:
+All read tools verified against the live API for athlete ixxxxx:
 - `get_power_curves`: the endpoint works with just `type` + date range (the
   spec's required `f1`/`f2`/`f3` are tolerated absent). Output is projected to the
   standard durations (5s/1min/5min/20min/60min) with watts and W/kg. Resolved.

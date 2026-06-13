@@ -37,6 +37,9 @@ yarn-error.log*
 .vscode/
 *~
 
+# Claude Code local state (worktrees, transcripts, settings)
+.claude/
+
 # Misc caches
 .cache/
 .tmp/

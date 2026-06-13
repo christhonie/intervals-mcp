@@ -113,11 +113,10 @@ of the current `package.json` version from the Actions tab without a code change
 
 == Why not the EMS reusable-workflow model?
 
-The EMS services share a large, complex build (Maven profiles, JIB, Helm chart
-packaging, GitFlow finish) across many repos, so centralising it in
-`christhonie/event/.github/workflows/*` and deploying via the
-`idl-xnl-jhb-rc01` GitOps repo earns its keep. See
-`docs-event` → *Development* → *GitHub Actions CI/CD* for that architecture.
+A larger sibling project shares a complex build (Maven profiles, JIB, Helm chart
+packaging, GitFlow finish) across many repos, so centralising it in a shared
+`.github/workflows/*` host repo and deploying via a separate GitOps repo earns
+its keep.
 
 For four near-identical ~90-line Node pipelines whose manifest lives in-repo, a
 self-contained workflow is easier to read, has no cross-repo access setup, and no

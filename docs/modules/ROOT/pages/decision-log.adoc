@@ -344,7 +344,7 @@ Consequences::
 
 == Validation status
 
-Read tools were validated live against athlete i579914 on 2026-06-02:
+Read tools were validated live against athlete ixxxxx on 2026-06-02:
 
 * *`get_power_curves`* — RESOLVED. The endpoint works with `type` + date range; the spec's required `f1`/`f2`/`f3` are tolerated absent. Output is projected to standard durations (5s/1min/5min/20min/60min) with watts and W/kg.
 * *eFTP* — RESOLVED. Sourced from `wellness.sportInfo[].eftp`, not a top-level field.
