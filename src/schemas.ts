@@ -35,6 +35,106 @@ export const GetActivityStreamsInput = {
 		),
 };
 
+// ── Phase 11 — Signal Processing Toolkit (reducers) ──
+
+// A stream reference is either a raw stream name or a derived-stream handle.
+const streamRef = (role = "Stream") =>
+	z
+		.string()
+		.describe(
+			`${role} reference: a raw stream name (e.g. smo2, heartrate, RMSSD — case-sensitive) or a derived-stream handle of the form source~op:params (e.g. smo2~mean:10 for a 10s trailing mean, or smo2~mean:10~d:1 for its first derivative).`,
+		);
+const startSec = () => z.number().int().nonnegative().optional().describe("Window start offset in seconds from activity start. Default: 0.");
+const endSec = () => z.number().int().nonnegative().optional().describe("Window end offset in seconds (exclusive). Default: full stream length.");
+const smoothWindow = () =>
+	z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe("If set, apply a trailing rolling mean of this many seconds before processing (suppresses noise). Equivalent to passing a ~mean:N handle.");
+
+export const DetectThresholdCrossingsInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660."),
+	stream: streamRef(),
+	threshold: z.number().describe("The crossing value."),
+	direction: z.enum(["rising", "falling", "both"]).describe("Which crossings to report."),
+	smooth_window_seconds: smoothWindow(),
+	min_duration_seconds: z
+		.number()
+		.int()
+		.nonnegative()
+		.optional()
+		.describe("Minimum time the stream must stay on the far side of the threshold for a crossing to count. Suppresses brief excursions. Default: 0 (report all)."),
+	start_sec: startSec(),
+	end_sec: endSec(),
+};
+
+export const DetectPeaksNadirsInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660."),
+	stream: streamRef(),
+	type: z.enum(["peaks", "nadirs", "both"]).describe("Detect local maxima, minima, or both."),
+	min_prominence: z
+		.number()
+		.positive()
+		.describe("Minimum prominence (value difference from the surrounding baseline) to qualify. Suppresses noise — e.g. SmO₂ ~5%, HR ~5 bpm."),
+	min_separation_seconds: z
+		.number()
+		.int()
+		.positive()
+		.optional()
+		.describe("Minimum gap between consecutive same-type events; the more prominent wins. Default: 30."),
+	smooth_window_seconds: smoothWindow(),
+	start_sec: startSec(),
+	end_sec: endSec(),
+};
+
+export const ComputeEpochStatsInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660."),
+	streams: z.array(streamRef()).nonempty().describe("One or more stream references; the same epoch grid is applied to all."),
+	epoch_seconds: z.number().int().positive().describe("Epoch duration in seconds (e.g. 300 for 5-minute trend epochs, 60 for fine-grained)."),
+	stats: z
+		.array(z.enum(["mean", "min", "max", "sd", "median"]))
+		.nonempty()
+		.describe("Statistics to compute per epoch per stream."),
+	exclude_windows: z
+		.array(z.object({ start_sec: z.number().int().nonnegative(), end_sec: z.number().int().nonnegative() }))
+		.optional()
+		.describe("Second ranges (absolute) to drop before computing stats, e.g. standing-bout windows excluded from a drift analysis."),
+	smooth_window_seconds: smoothWindow(),
+	start_sec: startSec(),
+	end_sec: endSec(),
+};
+
+export const ComputeCorrelationWindowInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660."),
+	stream_a: streamRef("First stream"),
+	stream_b: streamRef("Second stream"),
+	start_sec: z.number().int().nonnegative().describe("Window start offset in seconds from activity start."),
+	end_sec: z.number().int().nonnegative().describe("Window end offset in seconds (exclusive)."),
+	lag_seconds: z
+		.number()
+		.int()
+		.optional()
+		.describe("Offset stream_b by this many seconds before correlating. Positive = B lags A. Default: 0."),
+	smooth_window_seconds: smoothWindow(),
+};
+
+export const DetectPlateausInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660."),
+	stream: streamRef(),
+	method: z
+		.enum(["absolute", "relative"])
+		.describe('"absolute": band is center ± tolerance. "relative": elevated region value ≥ mean + n_sd·sd, computed over the window.'),
+	center: z.number().optional().describe("Band centre (required for method=absolute)."),
+	tolerance: z.number().positive().optional().describe("Half-width of the stable band (required for method=absolute)."),
+	n_sd: z.number().optional().describe("SDs above the window mean for the elevated threshold (required for method=relative; e.g. 1.5)."),
+	min_duration_seconds: z.number().int().positive().describe("Minimum plateau length to report, in seconds."),
+	smooth_window_seconds: smoothWindow(),
+	start_sec: startSec(),
+	end_sec: endSec(),
+};
+
 export const GetEventsInput = {
 	oldest: isoDate().optional().describe("Start date (ISO). Default: 7 days ago."),
 	newest: isoDate().optional().describe("End date (ISO). Default: 28 days from today."),

@@ -4,6 +4,51 @@ Release history for the Intervals.icu MCP server. Newest first. Versions follow
 [Semantic Versioning](https://semver.org/). The image tag in
 `k8s/deployment.yaml` must be bumped on every release (it drives the ArgoCD sync).
 
+## 0.1.15 — 2026-06-13
+
+Phase 11 (part 1 of 2) — Signal Processing Toolkit: foundation + the five
+"reducer" tools. Moves general-purpose numerical work on activity streams
+server-side so the coaching layer receives **answers, not arrays**. The three
+"shaper" tools + the composite `align_events_to_stream` land in 0.1.16.
+
+### Added
+- **`detect_threshold_crossings`** — times a stream crosses a threshold value
+  (rising/falling/both), with optional pre-smoothing and a `min_duration_seconds`
+  guard against brief excursions.
+- **`detect_peaks_nadirs`** — local maxima/minima with a topographic-prominence
+  filter and minimum same-type separation.
+- **`compute_epoch_stats`** — per-epoch summary stats (mean/min/max/sd/median)
+  across one or more streams, with `exclude_windows` to drop bout windows before
+  computing drift; reports per-stream `n` and `n_excluded`.
+- **`compute_correlation_window`** — Pearson r + two-tailed p-value between two
+  streams over a window, with optional `lag_seconds`.
+- **`detect_plateaus`** — sustained stable (`absolute`: center ± tolerance) or
+  elevated (`relative`: ≥ mean + n_sd·sd) periods of at least a minimum length.
+
+### Foundation
+- **`src/signal.ts`** — pure, null-skipping numeric primitives (trailing mean,
+  derivatives, threshold crossings, prominence peaks/nadirs, epoch stats,
+  plateaus), fully unit-tested.
+- **`src/streams.ts`** — a stream-reference resolver with **deterministic
+  derived-stream handles** (`source~op:params`, e.g. `smo2~mean:10~d:1`) and a
+  short-TTL LRU cache shared by all stream tools. The cache is a pure
+  optimisation: on a miss (eviction/TTL/rollout) any tool recomputes from the
+  handle recipe, so correctness never depends on cache liveness. `get_activity_streams`
+  was refactored onto this shared, cached fetch (same output; one upstream fetch
+  now serves a whole multi-tool analysis).
+- **`src/stats.ts`** — jStat-backed Pearson r + Student-t p-value, behind a typed
+  boundary (jStat is the one new runtime dependency).
+- **vitest** harness + a captured `i156869660` stream fixture; the requirements
+  doc's calibration table is encoded as assertions (20 tests).
+
+### Notes
+- **Calibration findings (ADR-014):** validating against `i156869660` surfaced
+  two places where the requirements doc's literal parameters don't reproduce on
+  the real data — SmO₂ nadir detection needs prominence ≈ 5 (not 3, which also
+  catches ~3% Z2-plateau wiggle), and standing-bout 4 is shallow (smoothed SmO₂
+  bottoms at 56.4%), so a 55% threshold finds 4 onsets while 57% finds all 5.
+  The primitives are correct; the doc's example knobs were optimistic.
+
 ## 0.1.14 — 2026-06-13
 
 Phase 10 — raw activity streams (`get_activity_streams`). Unblocks the SmO₂ +

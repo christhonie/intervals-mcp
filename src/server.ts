@@ -12,9 +12,21 @@ import { IntervalsClient, IntervalsApiError, normalizeActivityId } from "./inter
 import type { IntervalsConfig } from "./config.js";
 import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
+import { StreamService, parseRef } from "./streams.js";
+import {
+	computeStats,
+	epochStats,
+	peaksNadirs,
+	plateaus,
+	thresholdCrossings,
+	type Series,
+	type StatName,
+	type StatsResult,
+} from "./signal.js";
+import { pearson } from "./stats.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.14";
+const VERSION = "0.1.15";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -45,6 +57,15 @@ function toNum(v: unknown): number | null {
 
 const round1 = (n: number | null): number | null => (n === null ? null : Math.round(n * 10) / 10);
 const round2 = (n: number | null): number | null => (n === null ? null : Math.round(n * 100) / 100);
+const round3 = (n: number | null): number | null => (n === null ? null : Math.round(n * 1000) / 1000);
+const round4 = (n: number | null): number | null => (n === null ? null : Math.round(n * 10000) / 10000);
+
+/** Round the requested statistics of an epoch's per-stream result (3 dp). */
+function roundStats(st: StatsResult, names: StatName[]): Record<string, number | null> {
+	const out: Record<string, number | null> = {};
+	for (const name of names) out[name] = round3((st[name] ?? null) as number | null);
+	return out;
+}
 
 /** eFTP is carried per-sport in wellness.sportInfo[], not as a top-level field. */
 function extractEftp(r: any): number | null {
@@ -97,27 +118,21 @@ const WRITE_IDEM = { readOnlyHint: false, idempotentHint: true } as const;
 const RIDE_TYPES = new Set(["Ride", "VirtualRide"]);
 const isRide = (type: unknown): boolean => RIDE_TYPES.has(String(type));
 
-/**
- * Stream names the streams endpoint returns under a different `type` than was
- * requested. The API description states it "will return 'fixed_watts' as
- * 'watts'", so a request for `fixed_watts` must be resolved against the `watts`
- * entry. (`raw_watts` is returned under its requested name, so it needs no
- * alias.) Used by get_activity_streams to avoid mis-reporting present streams.
- */
-const STREAM_TYPE_ALIASES: Record<string, string> = { fixed_watts: "watts" };
-
 export class IntervalsMcpServer {
 	public server: McpServer;
 	private client: IntervalsClient;
+	private streams: StreamService;
 
 	constructor(config: IntervalsConfig) {
 		this.client = new IntervalsClient(config);
+		this.streams = new StreamService(this.client);
 		this.server = new McpServer({ name: "intervals-mcp", version: VERSION }, { instructions: INSTRUCTIONS });
 		this.registerPhase1();
 		this.registerPhase2();
 		this.registerPhase3();
 		this.registerPhase9();
 		this.registerPhase10();
+		this.registerPhase11();
 	}
 
 	// ── Phase 1 ──
@@ -941,24 +956,16 @@ export class IntervalsMcpServer {
 				annotations: RO,
 			},
 			async (args) => {
-				// The API returns an array of { type, data, … } ActivityStream
-				// objects. Key by stream name, preserving the caller's requested
-				// names and their case, so the output matches what was asked for.
-				const raw = (await this.client.getActivityStreams(args.activity_id, args.streams)) ?? [];
-				const byType = new Map<string, any>();
-				for (const s of raw) if (s && s.type != null) byType.set(String(s.type), s);
-
-				const streams: Record<string, unknown> = {};
+				// Shared, cached fetch (handles the fixed_watts→watts alias and
+				// keeps output keyed by the caller's requested names).
+				const map = await this.streams.getSources(args.activity_id, args.streams);
+				// Null-prototype: keys are caller-supplied stream names, so a plain
+				// object would let "__proto__"/"constructor" tamper with the prototype.
+				const streams: Record<string, unknown> = Object.create(null);
 				const missing: string[] = [];
 				let duration = 0;
 				for (const name of args.streams) {
-					// A few requested names come back under a canonical `type`: the
-					// API documents that `fixed_watts` is returned as `watts`. Fall
-					// back to the alias so a present stream isn't mis-reported as
-					// missing; output still keys on the caller's requested name.
-					const alias = STREAM_TYPE_ALIASES[name];
-					const s = byType.get(name) ?? (alias ? byType.get(alias) : undefined);
-					const data = s && Array.isArray(s.data) ? s.data : null;
+					const data = map.get(name) ?? null;
 					if (data === null) {
 						missing.push(name);
 						continue;
@@ -975,6 +982,249 @@ export class IntervalsMcpServer {
 				};
 				if (missing.length) result.missing_streams = missing;
 				return text(result);
+			},
+		);
+	}
+
+	// ── Phase 11 — Signal Processing Toolkit (reducers) ──
+
+	/**
+	 * Combine a stream reference with an optional smooth_window_seconds. Smoothing
+	 * is shorthand for a `~mean:N` op on the SOURCE, so combining it with a
+	 * reference that already carries ops is ambiguous — it would append a second
+	 * op at the end of the chain (double-smoothing, and on the derived stream
+	 * rather than the source). That combination is rejected; fold the smoothing
+	 * into the handle instead. A plain name with smoothing becomes `name~mean:N`.
+	 */
+	private smoothedRef(ref: string, smoothWindowSeconds: number | undefined): string {
+		if (!smoothWindowSeconds) return ref;
+		if (parseRef(ref).ops.length > 0) {
+			throw new Error(
+				`Pass smooth_window_seconds OR a derived handle with ops, not both — "${ref}" already has ops. ` +
+					`Fold the smoothing into the handle (e.g. "${ref}~mean:${smoothWindowSeconds}") if that is intended.`,
+			);
+		}
+		return `${ref}~mean:${smoothWindowSeconds}`;
+	}
+
+	/**
+	 * Resolve a stream reference (raw name or derived handle), optionally append
+	 * a trailing-mean smoothing op, and slice to [start, end). Returns the
+	 * windowed values plus the absolute start offset (added back onto event secs)
+	 * and the resolved handle. Throws if the source stream is absent.
+	 */
+	private async windowedStream(
+		activityId: string,
+		ref: string,
+		smoothWindowSeconds: number | undefined,
+		startSec: number | undefined,
+		endSec: number | undefined,
+	): Promise<{ values: Series; start: number; end: number; handle: string }> {
+		const fullRef = this.smoothedRef(ref, smoothWindowSeconds);
+		const resolved = await this.streams.resolve(activityId, fullRef);
+		if (resolved.values == null) {
+			throw new Error(`Stream "${ref}" not found on activity ${normalizeActivityId(activityId)}.`);
+		}
+		const full = resolved.values;
+		const start = startSec ?? 0;
+		const end = Math.min(endSec ?? full.length, full.length);
+		return { values: full.slice(start, end), start, end, handle: resolved.handle };
+	}
+
+	private registerPhase11(): void {
+		this.server.registerTool(
+			"detect_threshold_crossings",
+			{
+				description:
+					"Event detection: return the times where a stream crosses a threshold value in a given direction. The stream reference may be a raw name (e.g. smo2) or a derived handle (e.g. smo2~mean:10). Optional smooth_window_seconds applies a trailing rolling mean before detection; min_duration_seconds suppresses brief excursions (the stream must stay on the far side that long). Returns only the crossing events, not the array. Read-only.",
+				inputSchema: schemas.DetectThresholdCrossingsInput,
+				annotations: RO,
+			},
+			async (args) => {
+				const w = await this.windowedStream(args.activity_id, args.stream, args.smooth_window_seconds, args.start_sec, args.end_sec);
+				const crossings = thresholdCrossings(w.values, args.threshold, args.direction, args.min_duration_seconds ?? 0).map((c) => ({
+					sec: c.sec + w.start,
+					direction: c.direction,
+					value_at_crossing: round2(c.value_at_crossing),
+				}));
+				return text({
+					activity_id: normalizeActivityId(args.activity_id),
+					stream: args.stream,
+					resolved_handle: w.handle,
+					threshold: args.threshold,
+					direction: args.direction,
+					start_sec: w.start,
+					end_sec: w.end,
+					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
+					crossings,
+				});
+			},
+		);
+
+		this.server.registerTool(
+			"detect_peaks_nadirs",
+			{
+				description:
+					"Event detection: local maxima (peaks) and/or minima (nadirs) in a stream, filtered by topographic prominence (min value difference from the surrounding baseline) and a minimum separation between same-type events. Use when the crossing value is not known in advance (e.g. find SmO₂ nadirs without onset timestamps). Stream reference may be a raw name or derived handle; optional smoothing applied first. Returns the events only. Read-only.",
+				inputSchema: schemas.DetectPeaksNadirsInput,
+				annotations: RO,
+			},
+			async (args) => {
+				const w = await this.windowedStream(args.activity_id, args.stream, args.smooth_window_seconds, args.start_sec, args.end_sec);
+				const events = peaksNadirs(w.values, args.type, args.min_prominence, args.min_separation_seconds ?? 30).map((e) => ({
+					sec: e.sec + w.start,
+					type: e.type,
+					value: round2(e.value),
+					prominence: round2(e.prominence),
+				}));
+				return text({
+					activity_id: normalizeActivityId(args.activity_id),
+					stream: args.stream,
+					resolved_handle: w.handle,
+					type: args.type,
+					start_sec: w.start,
+					end_sec: w.end,
+					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
+					events,
+				});
+			},
+		);
+
+		this.server.registerTool(
+			"compute_epoch_stats",
+			{
+				description:
+					"Divide one or more streams into a fixed epoch grid (epoch_seconds) and return summary stats per epoch per stream — the clean way to see drift across a session. exclude_windows drops sample ranges (e.g. standing-bout windows) before stats so they don't contaminate the trend. Each stream reference may be a raw name or derived handle; optional smoothing applied to all. Per-stream n (non-null count) and n_excluded are reported for data-quality assessment. Read-only.",
+				inputSchema: schemas.ComputeEpochStatsInput,
+				annotations: RO,
+			},
+			async (args) => {
+				const refs = args.streams.map((s) => this.smoothedRef(s, args.smooth_window_seconds));
+				const resolvedMap = await this.streams.resolveMany(args.activity_id, refs);
+				// Null-prototype: keyed by caller-supplied stream names (see above).
+				const streamsMap: Record<string, Series> = Object.create(null);
+				const missing: string[] = [];
+				args.streams.forEach((name, i) => {
+					const rv = resolvedMap.get(refs[i]);
+					if (!rv || rv.values == null) {
+						missing.push(name);
+						streamsMap[name] = [];
+					} else {
+						streamsMap[name] = rv.values;
+					}
+				});
+				const res = epochStats(streamsMap, args.epoch_seconds, args.stats as StatName[], {
+					start: args.start_sec,
+					end: args.end_sec,
+					excludeWindows: args.exclude_windows,
+				});
+				// Round numeric stats for compact output.
+				const epochs = res.epochs.map((ep) => ({
+					start_sec: ep.start_sec,
+					end_sec: ep.end_sec,
+					stats: Object.fromEntries(
+						Object.entries(ep.stats).map(([name, st]) => [
+							name,
+							{
+								n: st.n,
+								n_excluded: st.n_excluded,
+								...roundStats(st, args.stats as StatName[]),
+							},
+						]),
+					),
+				}));
+				const result: Record<string, unknown> = {
+					activity_id: normalizeActivityId(args.activity_id),
+					epoch_seconds: res.epoch_seconds,
+					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
+					epochs,
+				};
+				if (missing.length) result.missing_streams = missing;
+				return text(result);
+			},
+		);
+
+		this.server.registerTool(
+			"compute_correlation_window",
+			{
+				description:
+					"Pearson correlation between two streams over a time window, with an optional lag (offset stream_b by lag_seconds; positive = B lags A). Returns r, the two-tailed p-value, and the non-null sample count n. Stream references may be raw names or derived handles; optional smoothing applied to both before correlating. Read-only.",
+				inputSchema: schemas.ComputeCorrelationWindowInput,
+				annotations: RO,
+			},
+			async (args) => {
+				const smooth = args.smooth_window_seconds;
+				const refA = this.smoothedRef(args.stream_a, smooth);
+				const refB = this.smoothedRef(args.stream_b, smooth);
+				const [ra, rb] = await Promise.all([
+					this.streams.resolve(args.activity_id, refA),
+					this.streams.resolve(args.activity_id, refB),
+				]);
+				if (ra.values == null) throw new Error(`Stream "${args.stream_a}" not found on activity ${normalizeActivityId(args.activity_id)}.`);
+				if (rb.values == null) throw new Error(`Stream "${args.stream_b}" not found on activity ${normalizeActivityId(args.activity_id)}.`);
+				const lag = args.lag_seconds ?? 0;
+				const xs: Series = [];
+				const ys: Series = [];
+				for (let t = args.start_sec; t < args.end_sec; t++) {
+					const bt = t + lag;
+					xs.push(t < ra.values.length ? ra.values[t] : null);
+					ys.push(bt >= 0 && bt < rb.values.length ? rb.values[bt] : null);
+				}
+				const { n, r, p } = pearson(xs, ys);
+				return text({
+					activity_id: normalizeActivityId(args.activity_id),
+					stream_a: args.stream_a,
+					stream_b: args.stream_b,
+					start_sec: args.start_sec,
+					end_sec: args.end_sec,
+					lag_seconds: lag,
+					smooth_type: smooth ? "trailing_mean" : null,
+					n_samples: n,
+					pearson_r: r === null ? null : round3(r),
+					p_value: p === null ? null : round4(p),
+				});
+			},
+		);
+
+		this.server.registerTool(
+			"detect_plateaus",
+			{
+				description:
+					"Detect sustained stable or elevated periods in a stream (more nuanced than a threshold crossing). method=absolute holds within center ± tolerance; method=relative flags the elevated region value ≥ mean + n_sd·sd computed over the window. min_duration_seconds is the shortest plateau reported. Stream reference may be a raw name or derived handle; optional smoothing applied first. Read-only.",
+				inputSchema: schemas.DetectPlateausInput,
+				annotations: RO,
+			},
+			async (args) => {
+				if (args.method === "absolute" && (args.center == null || args.tolerance == null)) {
+					throw new Error('detect_plateaus: method "absolute" requires center and tolerance.');
+				}
+				if (args.method === "relative" && args.n_sd == null) {
+					throw new Error('detect_plateaus: method "relative" requires n_sd.');
+				}
+				const w = await this.windowedStream(args.activity_id, args.stream, args.smooth_window_seconds, args.start_sec, args.end_sec);
+				const found = plateaus(w.values, {
+					method: args.method,
+					center: args.center,
+					tolerance: args.tolerance,
+					n_sd: args.n_sd,
+					minDurationSeconds: args.min_duration_seconds,
+				}).map((p) => ({
+					start_sec: p.start_sec + w.start,
+					end_sec: p.end_sec + w.start,
+					duration_s: p.duration_s,
+					mean_value: round2(p.mean_value),
+					sd_value: p.sd_value === null ? null : round2(p.sd_value),
+				}));
+				return text({
+					activity_id: normalizeActivityId(args.activity_id),
+					stream: args.stream,
+					resolved_handle: w.handle,
+					method: args.method,
+					start_sec: w.start,
+					end_sec: w.end,
+					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
+					plateaus: found,
+				});
 			},
 		);
 	}

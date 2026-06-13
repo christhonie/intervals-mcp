@@ -281,6 +281,30 @@ Consequences::
 * Positive: the keyed-envelope contract the coaching layer expects is preserved, decoupled from the API's array shape; case-sensitive pass-through avoids mismatches on streams like `RMSSD`.
 * Risk: not yet live-validated against activity `i156869660` — `types` vs `streams` was decided from the spec, not a live call. Validate post-deploy (confirm `smo2` length == `duration_seconds` 4204) before relying on it for the baselining analysis.
 
+[#adr-014]
+=== ADR-014: Signal Processing Toolkit — derived-stream handles + a stats dependency
+
+:adr-status: Accepted
+:adr-date: 2026-06-13
+
+Status:: Accepted
+
+Context::
+The Signal Processing Toolkit (Phase 11) adds server-side numerical operations on activity streams so the coaching layer receives answers, not raw arrays. The requirements doc framed it as "Phase 10 / v0.1.14", but that slot was already taken by `get_activity_streams`; the toolkit is therefore **Phase 11**, split across **v0.1.15** (foundation + five "reducer" tools) and **v0.1.16** (three "shaper" tools + the composite `align_events_to_stream`). Three design questions had to be settled: how shaper outputs are represented without re-shipping arrays, how the numerics are implemented, and how the work is tested given the repo had no test suite.
+
+Decision::
++
+* **Derived-stream handles (deterministic, recompute-on-miss).** Every stream tool takes a "stream reference" that is either a raw name or a self-describing handle encoding a derivation chain (`source~op:params`, e.g. `smo2~mean:10~d:1`). A short-TTL LRU cache (`src/streams.ts`) holds both raw and derived streams. The cache is a pure optimisation: a handle is its own recompute recipe, so on any miss — eviction, TTL, or a pod rollout (routine on this single-replica, in-memory server) — the stream is recomputed from the source. Opaque cache tokens were rejected for exactly this reason (they dangle on restart). In v0.1.16 the shaper tools become *producers* of these handles, returning a descriptor + summary instead of the array (with an opt-in `return_values`); `extract_segment` is the windowed materialiser.
+* **One shared, cached fetch.** `get_activity_streams` was refactored onto the same `StreamService`, so a multi-tool analysis fetches each source stream from Intervals.icu once. The `fixed_watts→watts` alias (ADR-013) moved into the resolver.
+* **A small stats dependency (jStat), wrapped.** Pearson r and the Student-t p-value go through jStat behind a typed boundary (`src/stats.ts`); the DSP primitives (rolling mean, derivative, prominence peaks, plateaus) are custom in `src/signal.ts` because no small stats lib provides them. Trailing rolling mean is the smoothing convention (no look-ahead; declared `smooth_type: "trailing_mean"`).
+* **Test-first against a captured fixture.** Added vitest and a one-off capture of activity `i156869660`'s streams (`test/fixtures/`), then encoded the doc's calibration table as assertions (20 tests).
+
+Consequences::
++
+* Positive: shaper outputs stop re-introducing the token problem; high-fidelity intermediates stay server-side and compose by reference; the calibration baselines are now a regression guarantee, not a one-off live check.
+* Calibration findings: two of the doc's literal example parameters do not reproduce on the real data and were corrected in the tests. (1) SmO₂ nadir detection at prominence 3.0 also catches the ~3% Z2-plateau wiggle (10 nadirs); the five standing bouts are deep (prominence 7.4–13.7) and isolate cleanly at prominence ≈ 5. (2) Standing-bout 4 (onset ~3633s) is shallow — its 10s-smoothed SmO₂ bottoms at 56.4%, so a falling-55% threshold detects 4 onsets while 57% detects all 5. The primitives are correct; the doc's knobs were optimistic. These are recorded back into the Signal Processing requirements doc.
+* Risk: the tools are unit-validated against the fixture but not yet live-validated end-to-end through the deployed MCP — confirm post-deploy.
+
 == Requirement change log
 
 [cols="1,3",options="header"]
@@ -291,6 +315,7 @@ Consequences::
 | 2026-06-02 | Phases 4–8 (see ADR-006, ADR-008…011): per-sport targets; clear-a-week; CR-01 note read-projection (`color`/`end_date_local`/`for_week`); BUG-03 ride/gym bucketing; BUG-04 per-sport compliance; `update_sport_settings`; `update_activity_type`. Phase 6 closed as no-op (gym load already feeds the PMC). Full per-version detail in `RELEASE.md`; full narrative in the Outline handover doc.
 | 2026-06-03 | `kg_lifted` write support on `update_activity`/`create_activity` (Intervals' new Weight Lifted field). WeightTraining fitness contribution set to 100% — confirmed to fix the calendar tile + compliance ring (ADR-009/011 corrected). Ride HR zones revised. IcuSync demoted to secondary/backup (ADR-012). The 2026-06-03 Intervals news was otherwise UI/integration-only (no API impact).
 | 2026-06-13 | Phase 10 — `get_activity_streams` (raw per-second streams) added for the SmO₂ + DFA α1 baselining programme (v0.1.14). API shape differed from the handover spec (query param `types`, array response) — see ADR-013.
+| 2026-06-13 | Phase 11 (part 1) — Signal Processing Toolkit foundation + 5 reducer tools (`detect_threshold_crossings`, `detect_peaks_nadirs`, `compute_epoch_stats`, `compute_correlation_window`, `detect_plateaus`) at v0.1.15. Derived-stream handles + shared cached fetch; vitest harness + `i156869660` fixture. Shapers + `align_events_to_stream` follow in v0.1.16. See ADR-014.
 |===
 
 == Validation status
