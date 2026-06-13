@@ -1151,8 +1151,8 @@ export class IntervalsMcpServer {
 			},
 			async (args) => {
 				const smooth = args.smooth_window_seconds;
-				const refA = smooth ? `${args.stream_a}~mean:${smooth}` : args.stream_a;
-				const refB = smooth ? `${args.stream_b}~mean:${smooth}` : args.stream_b;
+				const refA = this.smoothedRef(args.stream_a, smooth);
+				const refB = this.smoothedRef(args.stream_b, smooth);
 				const [ra, rb] = await Promise.all([
 					this.streams.resolve(args.activity_id, refA),
 					this.streams.resolve(args.activity_id, refB),
