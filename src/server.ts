@@ -1101,7 +1101,8 @@ export class IntervalsMcpServer {
 			async (args) => {
 				const refs = args.streams.map((s) => this.smoothedRef(s, args.smooth_window_seconds));
 				const resolvedMap = await this.streams.resolveMany(args.activity_id, refs);
-				const streamsMap: Record<string, Series> = {};
+				// Null-prototype: keyed by caller-supplied stream names (see above).
+				const streamsMap: Record<string, Series> = Object.create(null);
 				const missing: string[] = [];
 				args.streams.forEach((name, i) => {
 					const rv = resolvedMap.get(refs[i]);
