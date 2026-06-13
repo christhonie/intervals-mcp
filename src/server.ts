@@ -1097,7 +1097,7 @@ export class IntervalsMcpServer {
 				annotations: RO,
 			},
 			async (args) => {
-				const refs = args.streams.map((s) => (args.smooth_window_seconds ? `${s}~mean:${args.smooth_window_seconds}` : s));
+				const refs = args.streams.map((s) => this.smoothedRef(s, args.smooth_window_seconds));
 				const resolvedMap = await this.streams.resolveMany(args.activity_id, refs);
 				const streamsMap: Record<string, Series> = {};
 				const missing: string[] = [];
