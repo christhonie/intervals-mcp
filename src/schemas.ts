@@ -213,7 +213,9 @@ export const AlignEventsToStreamInput = {
 	events_sec: z
 		.array(z.number().int().nonnegative())
 		.nonempty()
-		.describe("Event onset timestamps (absolute seconds from activity start), e.g. standing-bout onsets. Use TRUE onsets — if these came from a detector on a smoothed stream, use its estimated_true_sec, not sec."),
+		.describe(
+			"Event onset timestamps (absolute seconds from activity start), e.g. standing-bout onsets. Use TRUE onsets. NOTE: a detector's event `sec` from a SMOOTHED stream is phase-lagged (trailing mean); inspect/correct it with that detector's `include_stream` (or extract_segment on its resolved_handle) before passing it here — the detectors do not return a lag-corrected timestamp.",
+		),
 	pre_seconds: z.number().int().nonnegative().describe("Seconds before each onset to include."),
 	post_seconds: z.number().int().positive().describe("Seconds after each onset to include."),
 	smooth_window_seconds: smoothWindow().describe("If set, apply a trailing rolling mean to all streams first. Rejected if a ref already has ops."),
