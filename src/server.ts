@@ -959,7 +959,9 @@ export class IntervalsMcpServer {
 				// Shared, cached fetch (handles the fixed_watts→watts alias and
 				// keeps output keyed by the caller's requested names).
 				const map = await this.streams.getSources(args.activity_id, args.streams);
-				const streams: Record<string, unknown> = {};
+				// Null-prototype: keys are caller-supplied stream names, so a plain
+				// object would let "__proto__"/"constructor" tamper with the prototype.
+				const streams: Record<string, unknown> = Object.create(null);
 				const missing: string[] = [];
 				let duration = 0;
 				for (const name of args.streams) {
