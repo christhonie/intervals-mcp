@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { StreamService } from "../src/streams.js";
-import { thresholdCrossings, peaksNadirs, epochStats, type Series } from "../src/signal.js";
+import { thresholdCrossings, peaksNadirs, epochStats, alignWindows, type Series } from "../src/signal.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const raw: Array<{ type: string; data: Series }> = JSON.parse(
@@ -63,5 +63,23 @@ describe("integration — Phase 11 tool pipeline over the fixture", () => {
 		});
 		expect(epochs.length).toBe(3);
 		expect(epochs[0].stats.smo2.mean!).toBeCloseTo(62.68, 0);
+	});
+
+	it("align_events_to_stream path reproduces per-bout SmO2 nadirs", async () => {
+		const { svc } = fixtureService();
+		const map = await svc.resolveMany("i156869660", ["smo2", "heartrate"]);
+		const streams = { smo2: map.get("smo2")!.values!, heartrate: map.get("heartrate")!.values! };
+		const { length, events } = alignWindows(streams, [1222, 2010, 2812, 3633, 3901], 30, 150);
+		expect(length).toBe(180); // pre 30 + post 150
+		expect(events).toHaveLength(5);
+		// Per-bout raw SmO2 nadir within each window (calibration table).
+		const expected = [52.0, 52.0, 50.9, 54.8, 51.9];
+		const nadirs = events.map((e) => Math.min(...e.windows.smo2.filter((v): v is number => v != null)));
+		nadirs.forEach((n, i) => expect(n).toBeCloseTo(expected[i], 0));
+		// Both requested streams present in every aligned window.
+		for (const e of events) {
+			expect(e.windows.smo2).toHaveLength(180);
+			expect(e.windows.heartrate).toHaveLength(180);
+		}
 	});
 });

@@ -14,10 +14,13 @@ import { applyRule1, fitnessFlags, hrvTrendDown } from "./business.js";
 import { addDays, daysAgo, daysFromNow, isMonday, toDateTime, today, weekStartMonday } from "./dates.js";
 import { StreamService, parseRef } from "./streams.js";
 import {
-	computeStats,
+	alignWindows,
+	downsample,
 	epochStats,
 	peaksNadirs,
 	plateaus,
+	summarize,
+	summaryByOffset,
 	thresholdCrossings,
 	type Series,
 	type StatName,
@@ -26,7 +29,7 @@ import {
 import { pearson } from "./stats.js";
 import * as schemas from "./schemas.js";
 
-const VERSION = "0.1.15";
+const VERSION = "0.1.16";
 
 const INSTRUCTIONS = [
 	"Intervals.icu MCP — live access to the athlete's training data and calendar.",
@@ -66,6 +69,7 @@ function roundStats(st: StatsResult, names: StatName[]): Record<string, number |
 	for (const name of names) out[name] = round3((st[name] ?? null) as number | null);
 	return out;
 }
+
 
 /** eFTP is carried per-sport in wellness.sportInfo[], not as a top-level field. */
 function extractEftp(r: any): number | null {
@@ -133,6 +137,7 @@ export class IntervalsMcpServer {
 		this.registerPhase9();
 		this.registerPhase10();
 		this.registerPhase11();
+		this.registerPhase11Part2();
 	}
 
 	// ── Phase 1 ──
@@ -1031,6 +1036,17 @@ export class IntervalsMcpServer {
 		return { values: full.slice(start, end), start, end, handle: resolved.handle };
 	}
 
+	/**
+	 * The transformed stream a detector actually ran on, for `include_stream`.
+	 * Values are positionally aligned with the activity timeline: index 0 is
+	 * `start_sec`. Lets the coaching layer inspect the smoothed/derived signal
+	 * (e.g. to see the trailing-mean phase lag directly) rather than correct for
+	 * it with a formula. Equivalent to extract_segment on the resolved handle.
+	 */
+	private intermediateStream(w: { values: Series; start: number; end: number; handle: string }) {
+		return { handle: w.handle, start_sec: w.start, end_sec: w.end, sample_rate_hz: 1, values: w.values.map((v) => round3(v)) };
+	}
+
 	private registerPhase11(): void {
 		this.server.registerTool(
 			"detect_threshold_crossings",
@@ -1047,7 +1063,7 @@ export class IntervalsMcpServer {
 					direction: c.direction,
 					value_at_crossing: round2(c.value_at_crossing),
 				}));
-				return text({
+				const result: Record<string, unknown> = {
 					activity_id: normalizeActivityId(args.activity_id),
 					stream: args.stream,
 					resolved_handle: w.handle,
@@ -1057,7 +1073,9 @@ export class IntervalsMcpServer {
 					end_sec: w.end,
 					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
 					crossings,
-				});
+				};
+				if (args.include_stream) result.intermediate_stream = this.intermediateStream(w);
+				return text(result);
 			},
 		);
 
@@ -1077,7 +1095,7 @@ export class IntervalsMcpServer {
 					value: round2(e.value),
 					prominence: round2(e.prominence),
 				}));
-				return text({
+				const result: Record<string, unknown> = {
 					activity_id: normalizeActivityId(args.activity_id),
 					stream: args.stream,
 					resolved_handle: w.handle,
@@ -1086,7 +1104,9 @@ export class IntervalsMcpServer {
 					end_sec: w.end,
 					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
 					events,
-				});
+				};
+				if (args.include_stream) result.intermediate_stream = this.intermediateStream(w);
+				return text(result);
 			},
 		);
 
@@ -1148,7 +1168,7 @@ export class IntervalsMcpServer {
 			"compute_correlation_window",
 			{
 				description:
-					"Pearson correlation between two streams over a time window, with an optional lag (offset stream_b by lag_seconds; positive = B lags A). Returns r, the two-tailed p-value, and the non-null sample count n. Stream references may be raw names or derived handles; optional smoothing applied to both before correlating. Read-only.",
+					"Pearson correlation between two streams over a time window, with an optional lag (offset stream_b by lag_seconds; positive = B lags A). Returns r, the two-tailed p-value, and the non-null sample count n. Pass lag_scan_seconds (an array of lags) to compute all of them in ONE call — returns a `scan` array plus the `best` (strongest |r|), e.g. to find the lag at which an inverse relationship peaks. Stream references may be raw names or derived handles; optional smoothing applied to both before correlating. Read-only.",
 				inputSchema: schemas.ComputeCorrelationWindowInput,
 				annotations: RO,
 			},
@@ -1162,27 +1182,45 @@ export class IntervalsMcpServer {
 				]);
 				if (ra.values == null) throw new Error(`Stream "${args.stream_a}" not found on activity ${normalizeActivityId(args.activity_id)}.`);
 				if (rb.values == null) throw new Error(`Stream "${args.stream_b}" not found on activity ${normalizeActivityId(args.activity_id)}.`);
-				const lag = args.lag_seconds ?? 0;
-				const xs: Series = [];
-				const ys: Series = [];
-				for (let t = args.start_sec; t < args.end_sec; t++) {
-					const bt = t + lag;
-					xs.push(t < ra.values.length ? ra.values[t] : null);
-					ys.push(bt >= 0 && bt < rb.values.length ? rb.values[bt] : null);
-				}
-				const { n, r, p } = pearson(xs, ys);
-				return text({
+				const av = ra.values;
+				const bv = rb.values;
+				// Correlate A[t] with B[t+lag] over [start, end), pairwise non-null.
+				const corrAt = (lag: number) => {
+					const xs: Series = [];
+					const ys: Series = [];
+					for (let t = args.start_sec; t < args.end_sec; t++) {
+						const bt = t + lag;
+						xs.push(t < av.length ? av[t] : null);
+						ys.push(bt >= 0 && bt < bv.length ? bv[bt] : null);
+					}
+					const { n, r, p } = pearson(xs, ys);
+					return { lag_seconds: lag, n_samples: n, pearson_r: r === null ? null : round3(r), p_value: p === null ? null : round4(p) };
+				};
+				const envelope: Record<string, unknown> = {
 					activity_id: normalizeActivityId(args.activity_id),
 					stream_a: args.stream_a,
 					stream_b: args.stream_b,
 					start_sec: args.start_sec,
 					end_sec: args.end_sec,
-					lag_seconds: lag,
 					smooth_type: smooth ? "trailing_mean" : null,
-					n_samples: n,
-					pearson_r: r === null ? null : round3(r),
-					p_value: p === null ? null : round4(p),
-				});
+				};
+				if (args.include_streams) {
+					const sliceEnd = (arr: Series) => Math.min(args.end_sec, arr.length);
+					envelope.intermediate_streams = {
+						stream_a: { handle: refA, values: av.slice(args.start_sec, sliceEnd(av)).map((v) => round3(v)) },
+						stream_b: { handle: refB, values: bv.slice(args.start_sec, sliceEnd(bv)).map((v) => round3(v)) },
+					};
+				}
+				if (args.lag_scan_seconds) {
+					const scan = args.lag_scan_seconds.map(corrAt);
+					const best =
+						scan
+							.filter((s) => s.pearson_r !== null)
+							.sort((a, b) => Math.abs(b.pearson_r as number) - Math.abs(a.pearson_r as number))[0] ?? null;
+					return text({ ...envelope, scan, best });
+				}
+				const one = corrAt(args.lag_seconds ?? 0);
+				return text({ ...envelope, ...one });
 			},
 		);
 
@@ -1215,7 +1253,7 @@ export class IntervalsMcpServer {
 					mean_value: round2(p.mean_value),
 					sd_value: p.sd_value === null ? null : round2(p.sd_value),
 				}));
-				return text({
+				const result: Record<string, unknown> = {
 					activity_id: normalizeActivityId(args.activity_id),
 					stream: args.stream,
 					resolved_handle: w.handle,
@@ -1224,7 +1262,184 @@ export class IntervalsMcpServer {
 					end_sec: w.end,
 					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
 					plateaus: found,
+				};
+				if (args.include_stream) result.intermediate_stream = this.intermediateStream(w);
+				return text(result);
+			},
+		);
+	}
+
+	// ── Phase 11 part 2 — shapers (handle producers) + composite ──
+
+	private registerPhase11Part2(): void {
+		this.server.registerTool(
+			"smooth_stream",
+			{
+				description:
+					"Produce a trailing rolling-mean DERIVED STREAM from a source stream. By default it does NOT return the array — it returns a deterministic handle (e.g. smo2~mean:10) plus a summary, so the high-fidelity series stays server-side and can be fed to any reducer by reference. Pass return_values:true (and optionally downsample_hz) to also get the values back. The source must be a raw stream name (smoothing a handle that already has ops is rejected). Read-only.",
+				inputSchema: schemas.SmoothStreamInput,
+				annotations: RO,
+			},
+			async (args) => {
+				const ref = this.smoothedRef(args.stream, args.window_seconds);
+				const resolved = await this.streams.resolve(args.activity_id, ref);
+				if (resolved.values == null) throw new Error(`Stream "${args.stream}" not found on activity ${normalizeActivityId(args.activity_id)}.`);
+				const full = resolved.values;
+				const start = args.start_sec ?? 0;
+				const end = Math.min(args.end_sec ?? full.length, full.length);
+				const seg = full.slice(start, end);
+				const s = summarize(seg);
+				const result: Record<string, unknown> = {
+					activity_id: normalizeActivityId(args.activity_id),
+					handle: resolved.handle,
+					source: resolved.source,
+					window_seconds: args.window_seconds,
+					smooth_type: "trailing_mean",
+					start_sec: start,
+					end_sec: end,
+					length: seg.length,
+					n_samples: s.n_samples,
+					sample_rate_hz: 1,
+					summary: { mean: round2(s.mean), sd: round2(s.sd), min: round2(s.min), max: round2(s.max) },
+				};
+				if (args.return_values) {
+					const vals = args.downsample_hz ? downsample(seg, args.downsample_hz) : seg;
+					result.sample_rate_hz = args.downsample_hz && args.downsample_hz < 1 ? args.downsample_hz : 1;
+					result.values = vals.map((v) => round2(v));
+				}
+				return text(result);
+			},
+		);
+
+		this.server.registerTool(
+			"compute_derivative",
+			{
+				description:
+					"Produce the first and/or second derivative of a stream as DERIVED STREAM(S). Like smooth_stream, returns handle(s) (e.g. smo2~mean:10~d:1) + summary by default; pass return_values:true for the arrays. smooth_window_seconds applies a trailing mean to the SOURCE first (strongly recommended — raw derivatives are noisy). order=1|2|both. Read-only.",
+				inputSchema: schemas.ComputeDerivativeInput,
+				annotations: RO,
+			},
+			async (args) => {
+				const base = this.smoothedRef(args.stream, args.smooth_window_seconds);
+				const orders = args.order === "both" ? [1, 2] : [args.order];
+				const start = args.start_sec;
+				const end = args.end_sec;
+				const derivatives: Record<string, unknown> = Object.create(null);
+				for (const ord of orders) {
+					const resolved = await this.streams.resolve(args.activity_id, `${base}~d:${ord}`);
+					if (resolved.values == null) throw new Error(`Stream "${args.stream}" not found on activity ${normalizeActivityId(args.activity_id)}.`);
+					const full = resolved.values;
+					const s = start ?? 0;
+					const e = Math.min(end ?? full.length, full.length);
+					const seg = full.slice(s, e);
+					const summ = summarize(seg);
+					const entry: Record<string, unknown> = {
+						handle: resolved.handle,
+						order: ord,
+						start_sec: s,
+						end_sec: e,
+						length: seg.length,
+						n_samples: summ.n_samples,
+						summary: { mean: round4(summ.mean), sd: round4(summ.sd), min: round4(summ.min), max: round4(summ.max) },
+					};
+					if (args.return_values) {
+						const vals = args.downsample_hz ? downsample(seg, args.downsample_hz) : seg;
+						entry.values = vals.map((v) => round4(v));
+					}
+					derivatives[`d${ord}`] = entry;
+				}
+				return text({
+					activity_id: normalizeActivityId(args.activity_id),
+					source: parseRef(base).source,
+					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
+					sample_rate_hz: args.return_values && args.downsample_hz && args.downsample_hz < 1 ? args.downsample_hz : 1,
+					derivatives,
 				});
+			},
+		);
+
+		this.server.registerTool(
+			"extract_segment",
+			{
+				description:
+					"Materialise the actual values of one or more streams over a time window — the explicit way to pull raw or smoothed numbers when you need to see them (the other tools return answers, not arrays). Optional smooth_window_seconds and downsample_hz keep the output compact. Each stream reference may be a raw name or a derived handle. Read-only.",
+				inputSchema: schemas.ExtractSegmentInput,
+				annotations: RO,
+			},
+			async (args) => {
+				const refs = args.streams.map((s) => this.smoothedRef(s, args.smooth_window_seconds));
+				const map = await this.streams.resolveMany(args.activity_id, refs);
+				const streams: Record<string, unknown> = Object.create(null);
+				const missing: string[] = [];
+				args.streams.forEach((name, i) => {
+					const rv = map.get(refs[i]);
+					if (!rv || rv.values == null) {
+						missing.push(name);
+						return;
+					}
+					const e = Math.min(args.end_sec, rv.values.length);
+					let seg = rv.values.slice(args.start_sec, e);
+					if (args.downsample_hz) seg = downsample(seg, args.downsample_hz);
+					streams[name] = seg.map((v) => round3(v));
+				});
+				const result: Record<string, unknown> = {
+					activity_id: normalizeActivityId(args.activity_id),
+					window_start_sec: args.start_sec,
+					window_end_sec: args.end_sec,
+					sample_rate_hz: args.downsample_hz && args.downsample_hz < 1 ? args.downsample_hz : 1,
+					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
+					streams,
+				};
+				if (missing.length) result.missing_streams = missing;
+				return text(result);
+			},
+		);
+
+		this.server.registerTool(
+			"align_events_to_stream",
+			{
+				description:
+					"Extract a fixed [onset-pre, onset+post) window of one or more streams around each event onset, returning the aligned per-event matrix. With summary_stats:true also returns the mean/SD response shape across all events per time offset — directly comparable across sessions. Pass TRUE onsets in events_sec (if from a detector on a smoothed stream, use its estimated_true_sec). The capstone for standing-bout / event-response analysis. Read-only.",
+				inputSchema: schemas.AlignEventsToStreamInput,
+				annotations: RO,
+			},
+			async (args) => {
+				const refs = args.streams.map((s) => this.smoothedRef(s, args.smooth_window_seconds));
+				const map = await this.streams.resolveMany(args.activity_id, refs);
+				const streamsMap: Record<string, Series> = Object.create(null);
+				const missing: string[] = [];
+				args.streams.forEach((name, i) => {
+					const rv = map.get(refs[i]);
+					if (!rv || rv.values == null) {
+						missing.push(name);
+						streamsMap[name] = [];
+					} else {
+						streamsMap[name] = rv.values;
+					}
+				});
+				const { length, events } = alignWindows(streamsMap, args.events_sec, args.pre_seconds, args.post_seconds);
+				const roundedEvents = events.map((e) => ({
+					onset_sec: e.onset_sec,
+					windows: Object.fromEntries(Object.entries(e.windows).map(([n, vals]) => [n, vals.map((v) => round3(v))])),
+				}));
+				const result: Record<string, unknown> = {
+					activity_id: normalizeActivityId(args.activity_id),
+					streams: args.streams,
+					window: { pre_seconds: args.pre_seconds, post_seconds: args.post_seconds, length },
+					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
+					events: roundedEvents,
+				};
+				if (args.summary_stats) {
+					const summary = summaryByOffset(events, args.streams, length);
+					result.summary = Object.fromEntries(
+						Object.entries(summary).map(([n, s]) => [
+							n,
+							{ mean_by_offset: s.mean_by_offset.map((v) => round3(v)), sd_by_offset: s.sd_by_offset.map((v) => round3(v)) },
+						]),
+					);
+				}
+				if (missing.length) result.missing_streams = missing;
+				return text(result);
 			},
 		);
 	}

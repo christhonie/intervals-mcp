@@ -19,6 +19,9 @@ import {
 	thresholdCrossings,
 	epochStats,
 	plateaus,
+	downsample,
+	alignWindows,
+	summaryByOffset,
 	type Series,
 } from "../src/signal.js";
 import { pearson } from "../src/stats.js";
@@ -147,5 +150,29 @@ describe("signal.ts — calibration against i156869660", () => {
 		const { n, r } = pearson(x, y);
 		expect(n).toBe(5);
 		expect(r!).toBeCloseTo(1, 5);
+	});
+
+	// ── Phase 11 part 2 ──
+
+	it("downsample averages buckets; no-op at >= 1 Hz", () => {
+		const d: Series = [0, 2, 4, 6, 8, 10, 12, 14];
+		expect(downsample(d, 0.25)).toEqual([3, 11]); // period 4 → means of each 4-bucket
+		expect(downsample(d, 1)).toEqual(d);
+		expect(downsample([0, null, 4, null], 0.5)).toEqual([0, 4]); // null-skipping per bucket
+	});
+
+	it("alignWindows + summaryByOffset produce the average response shape", () => {
+		const streams = { x: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] };
+		const { length, events } = alignWindows(streams, [3, 6], 1, 2); // pre 1, post 2 → length 3
+		expect(length).toBe(3);
+		expect(events[0].windows.x).toEqual([2, 3, 4]);
+		expect(events[1].windows.x).toEqual([5, 6, 7]);
+		const summ = summaryByOffset(events, ["x"], length);
+		expect(summ.x.mean_by_offset).toEqual([3.5, 4.5, 5.5]); // means of [2,5],[3,6],[4,7]
+	});
+
+	it("alignWindows null-pads out-of-range positions", () => {
+		const { events } = alignWindows({ x: [0, 1, 2] }, [0], 2, 2); // window [-2..2)
+		expect(events[0].windows.x).toEqual([null, null, 0, 1]);
 	});
 });

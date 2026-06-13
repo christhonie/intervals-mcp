@@ -53,6 +53,13 @@ const smoothWindow = () =>
 		.positive()
 		.optional()
 		.describe("If set, apply a trailing rolling mean of this many seconds before processing (suppresses noise). Equivalent to passing a ~mean:N handle.");
+const includeStream = () =>
+	z
+		.boolean()
+		.optional()
+		.describe(
+			"If true, also return intermediate_stream — the exact transformed (smoothed/derived) values the detector ran on, aligned to the window (index 0 = start_sec). Lets you inspect the signal (e.g. the trailing-mean phase lag) directly. Default false. (Equivalent to calling extract_segment on the resolved_handle.)",
+		);
 
 export const DetectThresholdCrossingsInput = {
 	activity_id: z.string().describe("Activity id, e.g. i156869660."),
@@ -68,6 +75,7 @@ export const DetectThresholdCrossingsInput = {
 		.describe("Minimum time the stream must stay on the far side of the threshold for a crossing to count. Suppresses brief excursions. Default: 0 (report all)."),
 	start_sec: startSec(),
 	end_sec: endSec(),
+	include_stream: includeStream(),
 };
 
 export const DetectPeaksNadirsInput = {
@@ -87,6 +95,7 @@ export const DetectPeaksNadirsInput = {
 	smooth_window_seconds: smoothWindow(),
 	start_sec: startSec(),
 	end_sec: endSec(),
+	include_stream: includeStream(),
 };
 
 export const ComputeEpochStatsInput = {
@@ -116,8 +125,21 @@ export const ComputeCorrelationWindowInput = {
 		.number()
 		.int()
 		.optional()
-		.describe("Offset stream_b by this many seconds before correlating. Positive = B lags A. Default: 0."),
+		.describe("Offset stream_b by this many seconds before correlating. Positive = B lags A. Default: 0. Ignored when lag_scan_seconds is supplied."),
+	lag_scan_seconds: z
+		.array(z.number().int())
+		.nonempty()
+		.optional()
+		.describe(
+			"Lag scan: compute the correlation at each of these lags (seconds) in one call and return a `scan` array plus the `best` (strongest |r|). E.g. [-30,-20,-10,0,10,20,30] to characterise the timing of an inverse relationship. When set, lag_seconds is ignored.",
+		),
 	smooth_window_seconds: smoothWindow(),
+	include_streams: z
+		.boolean()
+		.optional()
+		.describe(
+			"If true, also return intermediate_streams — the transformed values of stream_a and stream_b over the window (index 0 = start_sec), so you can inspect the signals that were correlated. Default false.",
+		),
 };
 
 export const DetectPlateausInput = {
@@ -133,6 +155,69 @@ export const DetectPlateausInput = {
 	smooth_window_seconds: smoothWindow(),
 	start_sec: startSec(),
 	end_sec: endSec(),
+	include_stream: includeStream(),
+};
+
+// ── Phase 11 part 2 — shapers (handle producers) + composite ──
+
+const downsampleHz = () =>
+	z
+		.number()
+		.positive()
+		.optional()
+		.describe("If set (<1), downsample returned values to this rate by bucket-mean, e.g. 0.1 = one value per 10s. Only affects values when return_values is true / on extract_segment.");
+
+export const SmoothStreamInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660."),
+	stream: streamRef(),
+	window_seconds: z.number().int().positive().describe("Trailing rolling-mean window width in seconds (e.g. SmO₂ 10, HR 5, RMSSD 30)."),
+	start_sec: startSec(),
+	end_sec: endSec(),
+	return_values: z
+		.boolean()
+		.optional()
+		.describe("If true, also return the smoothed values array (optionally downsampled). Default false — only the derived-stream handle + summary are returned, so the high-fidelity series stays server-side."),
+	downsample_hz: downsampleHz(),
+};
+
+export const ComputeDerivativeInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660."),
+	stream: streamRef(),
+	order: z
+		.union([z.literal(1), z.literal(2), z.literal("both")])
+		.describe("1 = first derivative (Δ/s), 2 = second derivative (Δ²/s²), \"both\" = return handles for both."),
+	smooth_window_seconds: smoothWindow().describe(
+		"Trailing rolling mean applied to the SOURCE before differentiating (strongly recommended — raw 1 Hz derivatives are noisy). Equivalent to a ~mean:N op on the source; rejected if the stream ref already has ops.",
+	),
+	start_sec: startSec(),
+	end_sec: endSec(),
+	return_values: z.boolean().optional().describe("If true, also return the derivative values array(s). Default false (handle + summary only)."),
+	downsample_hz: downsampleHz(),
+};
+
+export const ExtractSegmentInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660."),
+	streams: z.array(streamRef()).nonempty().describe("One or more stream references to materialise over the window."),
+	start_sec: z.number().int().nonnegative().describe("Window start offset in seconds from activity start."),
+	end_sec: z.number().int().nonnegative().describe("Window end offset in seconds (exclusive)."),
+	smooth_window_seconds: smoothWindow().describe("If set, apply a trailing rolling mean to all streams before slicing. Rejected if a ref already has ops."),
+	downsample_hz: downsampleHz(),
+};
+
+export const AlignEventsToStreamInput = {
+	activity_id: z.string().describe("Activity id, e.g. i156869660."),
+	streams: z.array(streamRef()).nonempty().describe("One or more stream references to extract around each event."),
+	events_sec: z
+		.array(z.number().int().nonnegative())
+		.nonempty()
+		.describe("Event onset timestamps (absolute seconds from activity start), e.g. standing-bout onsets. Use TRUE onsets — if these came from a detector on a smoothed stream, use its estimated_true_sec, not sec."),
+	pre_seconds: z.number().int().nonnegative().describe("Seconds before each onset to include."),
+	post_seconds: z.number().int().positive().describe("Seconds after each onset to include."),
+	smooth_window_seconds: smoothWindow().describe("If set, apply a trailing rolling mean to all streams first. Rejected if a ref already has ops."),
+	summary_stats: z
+		.boolean()
+		.optional()
+		.describe("If true, also return mean_by_offset / sd_by_offset across all events per time offset (the average response shape). Default false."),
 };
 
 export const GetEventsInput = {
