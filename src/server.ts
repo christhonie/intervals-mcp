@@ -16,6 +16,7 @@ import { StreamService, parseRef } from "./streams.js";
 import {
 	alignWindows,
 	downsample,
+	downsampleRate,
 	epochStats,
 	peaksNadirs,
 	plateaus,
@@ -1303,9 +1304,13 @@ export class IntervalsMcpServer {
 					summary: { mean: round2(s.mean), sd: round2(s.sd), min: round2(s.min), max: round2(s.max) },
 				};
 				if (args.return_values) {
-					const vals = args.downsample_hz ? downsample(seg, args.downsample_hz) : seg;
-					result.sample_rate_hz = args.downsample_hz && args.downsample_hz < 1 ? args.downsample_hz : 1;
-					result.values = vals.map((v) => round2(v));
+					if (args.downsample_hz) {
+						result.values = downsample(seg, args.downsample_hz).map((v) => round2(v));
+						result.requested_downsample_hz = args.downsample_hz;
+						result.sample_rate_hz = round4(downsampleRate(args.downsample_hz));
+					} else {
+						result.values = seg.map((v) => round2(v));
+					}
 				}
 				return text(result);
 			},
@@ -1348,11 +1353,13 @@ export class IntervalsMcpServer {
 					}
 					derivatives[`d${ord}`] = entry;
 				}
+				const ds = args.return_values && args.downsample_hz ? args.downsample_hz : undefined;
 				return text({
 					activity_id: normalizeActivityId(args.activity_id),
 					source: parseRef(base).source,
 					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
-					sample_rate_hz: args.return_values && args.downsample_hz && args.downsample_hz < 1 ? args.downsample_hz : 1,
+					sample_rate_hz: round4(ds ? downsampleRate(ds) : 1),
+					...(ds ? { requested_downsample_hz: ds } : {}),
 					derivatives,
 				});
 			},
@@ -1386,7 +1393,8 @@ export class IntervalsMcpServer {
 					activity_id: normalizeActivityId(args.activity_id),
 					window_start_sec: args.start_sec,
 					window_end_sec: args.end_sec,
-					sample_rate_hz: args.downsample_hz && args.downsample_hz < 1 ? args.downsample_hz : 1,
+					sample_rate_hz: round4(args.downsample_hz ? downsampleRate(args.downsample_hz) : 1),
+					...(args.downsample_hz ? { requested_downsample_hz: args.downsample_hz } : {}),
 					smooth_type: args.smooth_window_seconds ? "trailing_mean" : null,
 					streams,
 				};

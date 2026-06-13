@@ -164,8 +164,11 @@ const downsampleHz = () =>
 	z
 		.number()
 		.positive()
+		.lt(1)
 		.optional()
-		.describe("If set (<1), downsample returned values to this rate by bucket-mean, e.g. 0.1 = one value per 10s. Only affects values when return_values is true / on extract_segment.");
+		.describe(
+			"Downsample returned values to this rate by bucket-mean — must be < 1 (e.g. 0.1 = one value per 10s). Bucketing uses period = round(1/hz), so the ACTUAL output rate is reported as sample_rate_hz and the input echoed as requested_downsample_hz (they differ for non-1/N rates, e.g. 0.6 → 0.5). Only affects values when return_values is true / on extract_segment.",
+		);
 
 export const SmoothStreamInput = {
 	activity_id: z.string().describe("Activity id, e.g. i156869660."),

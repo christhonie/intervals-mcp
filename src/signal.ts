@@ -441,6 +441,17 @@ export function downsample(data: Series, hz: number): Series {
 	return out;
 }
 
+/**
+ * The ACTUAL output rate of downsample(data, hz). Because the bucket period is
+ * `round(1/hz)` (an integer), the realised rate is `1 / round(1/hz)`, which
+ * equals the requested `hz` only when `hz` is exactly 1/N. Returns 1 for hz that
+ * is non-positive or ≥ 1 (downsample is a no-op there).
+ */
+export function downsampleRate(hz: number): number {
+	if (!(hz > 0) || hz >= 1) return 1;
+	return 1 / Math.max(1, Math.round(1 / hz));
+}
+
 export interface AlignedEvent {
 	onset_sec: number;
 	windows: Record<string, Series>;

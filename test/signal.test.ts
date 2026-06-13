@@ -20,6 +20,7 @@ import {
 	epochStats,
 	plateaus,
 	downsample,
+	downsampleRate,
 	alignWindows,
 	summaryByOffset,
 	type Series,
@@ -159,6 +160,13 @@ describe("signal.ts — calibration against i156869660", () => {
 		expect(downsample(d, 0.25)).toEqual([3, 11]); // period 4 → means of each 4-bucket
 		expect(downsample(d, 1)).toEqual(d);
 		expect(downsample([0, null, 4, null], 0.5)).toEqual([0, 4]); // null-skipping per bucket
+	});
+
+	it("downsampleRate reports the actual realised rate (period = round(1/hz))", () => {
+		expect(downsampleRate(0.1)).toBeCloseTo(0.1, 6); // 1/10, exact
+		expect(downsampleRate(0.5)).toBeCloseTo(0.5, 6); // 1/2, exact
+		expect(downsampleRate(0.6)).toBeCloseTo(0.5, 6); // period round(1/0.6)=2 → 0.5, NOT 0.6
+		expect(downsampleRate(0.3)).toBeCloseTo(1 / 3, 6); // period round(3.33)=3 → 0.333…
 	});
 
 	it("alignWindows + summaryByOffset produce the average response shape", () => {
