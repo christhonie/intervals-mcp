@@ -141,7 +141,11 @@ export class StreamService {
 			const raw = (await this.client.getActivityStreams(id, missing)) ?? [];
 			const byType = new Map<string, Series>();
 			for (const s of raw) {
-				if (s && s.type != null) byType.set(String(s.type), Array.isArray(s.data) ? s.data : []);
+				// Only accept an actual sample array. A stream whose `data` is not an
+				// array is treated as absent (resolves to null below) rather than as
+				// "present but empty", so a malformed upstream response is not silently
+				// masked into downstream duration/stat calculations.
+				if (s && s.type != null && Array.isArray(s.data)) byType.set(String(s.type), s.data);
 			}
 			for (const name of missing) {
 				const alias = STREAM_TYPE_ALIASES[name];
