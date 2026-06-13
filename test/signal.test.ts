@@ -91,6 +91,18 @@ describe("signal.ts — calibration against i156869660", () => {
 		expect(at55.length).toBe(4);
 	});
 
+	it("threshold crossing needs observed residence over min_duration (not just the cross)", () => {
+		// Falling crossing at index 2, then an immediate dropout for the whole
+		// required window → cannot confirm it stayed beyond → not reported.
+		const dropout: Series = [10, 10, 4, null, null, null, null];
+		expect(thresholdCrossings(dropout, 5, "falling", 3).length).toBe(0);
+		// A sparse null with an observed beyond sample after the cross → reported.
+		const sparse: Series = [10, 10, 4, null, 4, null, 4];
+		const c = thresholdCrossings(sparse, 5, "falling", 3);
+		expect(c.length).toBe(1);
+		expect(c[0].sec).toBe(2);
+	});
+
 	it("compute_epoch_stats([smo2,dfa_a1], 1200s, exclude bouts) → clean drift", () => {
 		const excludeWindows = BOUT_ONSETS.map((o) => ({ start_sec: o - 30, end_sec: o + 150 }));
 		const { epochs } = epochStats({ smo2: S.smo2, dfa_a1: S.dfa_a1 }, 1200, ["mean"], {

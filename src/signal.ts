@@ -172,13 +172,22 @@ export interface Crossing {
 
 function staysBeyond(data: Series, from: number, threshold: number, dir: "rising" | "falling", durationSeconds: number): boolean {
 	const end = Math.min(data.length, from + durationSeconds);
+	// The stream must be OBSERVED to remain on the far side for the duration. The
+	// crossing sample at `from` is beyond by definition, so confirmation requires
+	// at least one observed beyond sample AFTER it: an immediate dropout for the
+	// whole window (all-null after the cross) cannot confirm the excursion and is
+	// rejected. Any observed near-side sample fails. Sparse nulls between
+	// confirming samples are tolerated — one dropout shouldn't discard a genuine
+	// sustained crossing.
+	let observedAfter = false;
 	for (let j = from; j < end; j++) {
 		const v = data[j];
 		if (!isNum(v)) continue;
 		if (dir === "rising" && v < threshold) return false;
 		if (dir === "falling" && v > threshold) return false;
+		if (j > from) observedAfter = true;
 	}
-	return true;
+	return durationSeconds <= 1 ? true : observedAfter;
 }
 
 /**
