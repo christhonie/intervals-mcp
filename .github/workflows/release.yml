@@ -25,8 +25,8 @@ on:
     # (which only touches k8s/**). Ignoring k8s/** is the primary guard against a
     # self-trigger loop; the "[skip ci]" in the commit message is a second guard.
     paths-ignore:
-      - '**.md'
-      - '**.adoc'
+      - '**/*.md'
+      - '**/*.adoc'
       - 'docs/**'
       - 'k8s/**'
       - '.github/**'
