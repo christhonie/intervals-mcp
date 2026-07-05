@@ -1,0 +1,23 @@
+# Protects the single replica from *voluntary* disruption — the descheduler,
+# cluster-autoscaler rebalancing, and soft node drains all honour a PDB and will
+# skip evicting this pod while it would violate minAvailable. That churn (pods
+# rescheduled every few days) is what forced claude.ai to re-authenticate.
+#
+# With REDIS_URL set, OAuth state now survives a reschedule anyway, so this is a
+# secondary "reduce the churn" measure, not the primary fix.
+#
+# Trade-off (single replica): genuine node maintenance must either scale this
+# Deployment to 0 first, or `kubectl drain --disable-eviction`. A plain drain
+# will block on this PDB until then.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: intervals-mcp
+  namespace: mcp
+  labels:
+    app.kubernetes.io/name: intervals-mcp
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: intervals-mcp
