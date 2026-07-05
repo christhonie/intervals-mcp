@@ -30,7 +30,12 @@ on:
       - 'docs/**'
       - 'k8s/**'
       - '.github/**'
-  workflow_dispatch: {}   # allow a manual re-build/redeploy of the current version
+  # Manually re-build and re-push the current version's image (same tag). Note
+  # this does NOT force a redeploy on its own: with the version unchanged the
+  # manifest doesn't change, so ArgoCD won't roll, and imagePullPolicy:
+  # IfNotPresent means the node keeps the already-cached image. Bump the version
+  # for an actual rollout.
+  workflow_dispatch: {}
 
 env:
   REGISTRY_USER: christhonie
@@ -97,6 +102,17 @@ jobs:
           image_re=$(printf '%s' "$IMAGE" | sed -E 's/[][\\.^$*+?(){}|]/\\&/g')
           sed -i -E "s#(image: ${image_re}:)[^[:space:]]+#\1${{ steps.ver.outputs.version }}#" k8s/deployment.yaml
           echo "Manifest now:"; grep 'image:' k8s/deployment.yaml
+
+          # Fail fast if the manifest does NOT end up pointing at the expected
+          # image:version. This holds both when sed rewrote the tag and when it
+          # was already at this version (a legit no-op the next step handles).
+          # It only trips when sed matched nothing — e.g. the manifest was
+          # reformatted or switched to a digest — where the build/push would
+          # otherwise succeed but the deploy silently never happens.
+          if ! grep -qF "image: ${IMAGE}:${{ steps.ver.outputs.version }}" k8s/deployment.yaml; then
+            echo "::error::k8s/deployment.yaml does not contain 'image: ${IMAGE}:${{ steps.ver.outputs.version }}' after the tag bump — the sed pattern did not match. Refusing to continue." >&2
+            exit 1
+          fi
 
       - name: Commit and push tag bump
         run: |
